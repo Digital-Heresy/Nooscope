@@ -28,7 +28,11 @@ document.addEventListener('DOMContentLoaded', () => {
   eventLog = new EventLog('log-entries');
   infoPanel = new InfoPanel('info-panel', 'info-content', 'info-close');
 
-  graph.onNodeSelect = (node) => infoPanel.show(node);
+  graph.onNodeSelect = (node) => infoPanel.show(node, graph);
+  graph.onNodeUpdated = (node) => {
+    // Refresh info panel if the updated node is currently selected
+    infoPanel.refreshIfShowing(node, graph);
+  };
 
   // Render a test graph immediately to verify rendering works
   renderTestGraph();
@@ -178,11 +182,13 @@ function handleNodeCreated(event) {
 }
 
 function handleEdgeReinforced(event) {
-  // Future: update edge width in graph
+  const p = event.payload;
+  graph.updateEdge(p.source_id, p.target_id, p.weight);
 }
 
 function handleEdgeCreated(event) {
-  // Future: add new edge to graph
+  const p = event.payload;
+  graph.addEdge(p.source_id, p.target_id, 0.3, p.origin);
 }
 
 function handleRecallFired(event) {

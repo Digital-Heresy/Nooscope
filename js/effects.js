@@ -1,5 +1,5 @@
 /**
- * Event log and UI effects for Nooscope.
+ * Event log, info panel, and UI effects for Nooscope.
  */
 
 class EventLog {
@@ -19,7 +19,6 @@ class EventLog {
 
     this.container.insertBefore(entry, this.container.firstChild);
 
-    // Trim old entries
     while (this.container.children.length > this.maxEntries) {
       this.container.removeChild(this.container.lastChild);
     }
@@ -58,10 +57,27 @@ class InfoPanel {
   constructor(panelId, contentId, closeId) {
     this.panel = document.getElementById(panelId);
     this.content = document.getElementById(contentId);
+    this.currentNodeId = null;
     document.getElementById(closeId).addEventListener('click', () => this.hide());
   }
 
-  show(node) {
+  show(node, graph) {
+    this.currentNodeId = node.id;
+    this._renderContent(node, graph);
+    this.panel.classList.remove('hidden');
+  }
+
+  refreshIfShowing(node, graph) {
+    if (this.currentNodeId === node.id) {
+      this._renderContent(node, graph);
+    }
+  }
+
+  _renderContent(node, graph) {
+    const isFav = graph && graph.isFavorite(node.id);
+    const favBtnText = isFav ? '&#9733; Favorited' : '&#9734; Favorite';
+    const favBtnClass = isFav ? 'fav-btn active' : 'fav-btn';
+
     this.content.innerHTML = `
       <div class="field">
         <div class="field-label">ID</div>
@@ -87,17 +103,31 @@ class InfoPanel {
         <div class="field-label">Consolidation Level</div>
         <div class="field-value">${node.level === 0 ? 'Episodic' : node.level === 1 ? 'Cluster' : 'Abstract'}</div>
       </div>
+      <div class="field">
+        <button class="${favBtnClass}" onclick="toggleFavorite('${node.id}')">${favBtnText}</button>
+      </div>
     `;
-    this.panel.classList.remove('hidden');
   }
 
   hide() {
     this.panel.classList.add('hidden');
+    this.currentNodeId = null;
   }
 
   _escape(str) {
     const div = document.createElement('div');
     div.textContent = str;
     return div.innerHTML;
+  }
+}
+
+// Global function for the favorite button onclick
+function toggleFavorite(nodeId) {
+  if (!graph) return;
+  const isFav = graph.toggleFavorite(nodeId);
+  // Refresh the info panel
+  const node = graph.nodeMap.get(nodeId);
+  if (node) {
+    infoPanel._renderContent(node, graph);
   }
 }
