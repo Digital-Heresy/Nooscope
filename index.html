@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nooscope</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <!-- Status bar -->
+  <div id="status-bar">
+    <div class="status-left">
+      <span class="logo">Nooscope</span>
+      <select id="scion-select">
+        <option value="speaker">Speaker (3030/8100)</option>
+        <option value="helix">Helix (3031/8101)</option>
+        <option value="custom">Custom...</option>
+      </select>
+      <button id="connect-btn">Connect</button>
+    </div>
+    <div class="status-right">
+      <span id="thriden-status" class="status-indicator disconnected">Thriden</span>
+      <span id="pf-status" class="status-indicator disconnected">PF</span>
+      <span id="node-count" class="stat">0 nodes</span>
+      <span id="edge-count" class="stat">0 edges</span>
+    </div>
+  </div>
+
+  <!-- Custom connection dialog -->
+  <div id="custom-dialog" class="hidden">
+    <label>Thriden port: <input id="custom-thriden" type="number" value="3030"></label>
+    <label>PF port: <input id="custom-pf" type="number" value="8100"></label>
+    <button id="custom-connect-btn">Connect</button>
+  </div>
+
+  <!-- 3D graph container -->
+  <div id="graph-container"></div>
+
+  <!-- Info panel (selected node) -->
+  <div id="info-panel" class="hidden">
+    <div class="panel-header">
+      <span>Node Detail</span>
+      <button id="info-close">&times;</button>
+    </div>
+    <div id="info-content"></div>
+  </div>
+
+  <!-- Event log -->
+  <div id="event-log">
+    <div class="panel-header">Events</div>
+    <div id="log-entries"></div>
+  </div>
+
+  <!-- Session status -->
+  <div id="session-status" class="hidden"></div>
+
+  <!-- CDN dependencies -->
+  <script src="https://unpkg.com/three@0.170.0/build/three.min.js"></script>
+  <script src="https://unpkg.com/3d-force-graph@1.77.4/dist/3d-force-graph.min.js"></script>
+
+  <!-- App modules -->
+  <script src="js/stream.js"></script>
+  <script src="js/graph.js"></script>
+  <script src="js/effects.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
