@@ -17,11 +17,21 @@ let pfStream = null;
 
 // ---- Init ----
 document.addEventListener('DOMContentLoaded', () => {
+  // Debug: verify three.js and 3d-force-graph loaded
+  console.log('three.js loaded:', typeof THREE !== 'undefined');
+  console.log('ForceGraph3D loaded:', typeof ForceGraph3D !== 'undefined');
+
+  const container = document.getElementById('graph-container');
+  console.log('Container size:', container.clientWidth, 'x', container.clientHeight);
+
   graph = new MemoryGraph('graph-container');
   eventLog = new EventLog('log-entries');
   infoPanel = new InfoPanel('info-panel', 'info-content', 'info-close');
 
   graph.onNodeSelect = (node) => infoPanel.show(node);
+
+  // Render a test graph immediately to verify rendering works
+  renderTestGraph();
 
   // Parse URL params
   const params = new URLSearchParams(window.location.search);
@@ -210,4 +220,42 @@ function updateStats() {
   const stats = graph.getStats();
   document.getElementById('node-count').textContent = `${stats.nodes} nodes`;
   document.getElementById('edge-count').textContent = `${stats.edges} edges`;
+}
+
+// ---- Test graph (renders immediately to verify three.js works) ----
+
+function renderTestGraph() {
+  console.log('Rendering test graph...');
+  const testSnapshot = {
+    nodes: [
+      { id: 'test-1', content_preview: 'Working Memory', scope: 'self', activation_count: 10, salience: 0.8, consolidation_level: 0, edges: [
+        { target_id: 'test-2', weight: 0.7, origin: 'co_activation' },
+        { target_id: 'test-3', weight: 0.5, origin: 'co_activation' },
+      ]},
+      { id: 'test-2', content_preview: 'Recall Pathway', scope: 'universal', activation_count: 8, salience: 0.6, consolidation_level: 0, edges: [
+        { target_id: 'test-1', weight: 0.7, origin: 'co_activation' },
+        { target_id: 'test-4', weight: 0.4, origin: 'co_activation' },
+      ]},
+      { id: 'test-3', content_preview: 'Memory Formation', scope: 'universal', activation_count: 5, salience: 0.5, consolidation_level: 0, edges: [
+        { target_id: 'test-1', weight: 0.5, origin: 'co_activation' },
+        { target_id: 'test-5', weight: 0.3, origin: 'explicit' },
+      ]},
+      { id: 'test-4', content_preview: 'Sensory Input', scope: 'other:external', activation_count: 3, salience: 0.4, consolidation_level: 0, edges: [
+        { target_id: 'test-2', weight: 0.4, origin: 'co_activation' },
+      ]},
+      { id: 'test-5', content_preview: 'Consolidation', scope: 'self', activation_count: 1, salience: 0.3, consolidation_level: 0, edges: [
+        { target_id: 'test-3', weight: 0.3, origin: 'explicit' },
+      ]},
+    ],
+    total_nodes: 5,
+    total_edges: 10,
+  };
+
+  try {
+    graph.initFromSnapshot(testSnapshot);
+    updateStats();
+    console.log('Test graph rendered successfully');
+  } catch (e) {
+    console.error('Test graph failed:', e);
+  }
 }
