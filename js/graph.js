@@ -74,7 +74,12 @@ class MemoryGraph {
       this.graph._destructor && this.graph._destructor();
     }
 
+    const width = this.container.clientWidth || window.innerWidth;
+    const height = this.container.clientHeight || (window.innerHeight - 40);
+
     this.graph = ForceGraph3D()(this.container)
+      .width(width)
+      .height(height)
       .graphData(this.graphData)
       .backgroundColor('#0a0a1a')
       .nodeVal(n => {
