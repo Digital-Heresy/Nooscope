@@ -68,7 +68,8 @@ class MemoryGraph {
   }
 
   _nodeSize(activationCount) {
-    return Math.max(1, Math.log2(activationCount + 1)) * 2;
+    // Keep nodes small -- the THREE sphere radius, not the force-graph nodeVal
+    return Math.max(0.5, Math.log2(activationCount + 1)) * 0.8;
   }
 
   _render() {
@@ -101,7 +102,7 @@ class MemoryGraph {
         group.add(sphere);
 
         // Selection halo ring
-        const ringGeo = new THREE.RingGeometry(size * 1.6, size * 2.0, 32);
+        const ringGeo = new THREE.RingGeometry(size + 0.5, size + 0.8, 32);
         const ringMat = new THREE.MeshBasicMaterial({
           color: '#00e5ff',
           transparent: true,
@@ -114,7 +115,7 @@ class MemoryGraph {
 
         // Favorite star indicator
         if (self.favorites.has(node.id)) {
-          const starGeo = new THREE.RingGeometry(size * 2.2, size * 2.5, 5);
+          const starGeo = new THREE.RingGeometry(size + 1.0, size + 1.3, 5);
           const starMat = new THREE.MeshBasicMaterial({
             color: '#ffd700',
             transparent: true,
@@ -140,15 +141,18 @@ class MemoryGraph {
         this._updateSelectionVisuals();
       })
       .warmupTicks(100)
-      .cooldownTicks(200)
-      // Slightly weaker force to spread the dense clique
-      .d3Force('charge', null);
+      .cooldownTicks(200);
 
-    // Re-add charge with slightly less strength
-    if (this.graph.d3Force) {
-      const d3 = window.d3 || (this.graph.d3Force('charge') && null);
-      // 3d-force-graph exposes d3 forces -- reduce charge magnitude
-      this.graph.d3Force('charge').strength(-40);
+    // Increase repulsion so the dense clique spreads out
+    const charge = this.graph.d3Force('charge');
+    if (charge) {
+      charge.strength(-80);
+      charge.distanceMax(300);
+    }
+    // Increase link distance so connected nodes don't collapse
+    const link = this.graph.d3Force('link');
+    if (link) {
+      link.distance(40);
     }
 
     // Start animation loop
@@ -159,8 +163,8 @@ class MemoryGraph {
     const now = Date.now();
     let size = node._baseSize;
     if (node._pulseUntil > now) {
-      const progress = (node._pulseUntil - now) / 700;
-      size = size * (1 + 0.5 * progress);
+      const progress = (node._pulseUntil - now) / 1000;
+      size = size * (1 + 1.5 * progress); // More dramatic pulse
     }
     return size;
   }
@@ -218,7 +222,7 @@ class MemoryGraph {
   pulseNode(nodeId) {
     const node = this.nodeMap.get(nodeId);
     if (node) {
-      node._pulseUntil = Date.now() + 700;
+      node._pulseUntil = Date.now() + 1000;
     }
   }
 
