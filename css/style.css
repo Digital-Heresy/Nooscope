@@ -76,6 +76,27 @@ button {
 
 button:hover { opacity: 0.8; }
 
+#connect-btn.disconnecting {
+  background: var(--status-disconnected);
+}
+
+.rotate-btn {
+  background: var(--bg-input);
+  color: var(--accent-cyan);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  padding: 3px 8px;
+  min-width: 28px;
+}
+
+.rotate-btn.playing {
+  color: var(--accent-cyan);
+}
+
+.rotate-btn.paused {
+  color: var(--text-dim);
+}
+
 .status-indicator {
   padding: 3px 8px;
   border-radius: 3px;
@@ -220,6 +241,7 @@ button:hover { opacity: 0.8; }
 .log-type-edge_created { color: var(--accent-blue); }
 .log-type-session_created { color: var(--text-dim); }
 .log-type-session_expired { color: var(--text-dim); }
+.log-type-graph_wiped { color: var(--status-disconnected); }
 
 /* Session status */
 #session-status {
@@ -253,5 +275,42 @@ button:hover { opacity: 0.8; }
 }
 
 .fav-btn:hover { opacity: 0.8; }
+
+/* Position editor (logo tuning) */
+.pos-editor {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.pos-editor label {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.pos-editor input {
+  width: 55px;
+  font-size: 11px;
+  padding: 2px 4px;
+}
+
+.pos-apply-btn {
+  font-size: 11px;
+  padding: 2px 8px;
+}
+
+.pos-dump-btn {
+  background: var(--accent-purple);
+  color: #fff;
+  font-size: 11px;
+  padding: 4px 12px;
+  width: 100%;
+  margin-top: 4px;
+}
 
 .hidden { display: none !important; }

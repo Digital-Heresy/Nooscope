@@ -45,6 +45,8 @@ class EventLog {
         return `${(p.source_id || '').substring(0, 8)}...->${(p.target_id || '').substring(0, 8)}... w=${(p.weight || 0).toFixed(3)}`;
       case 'edge_created':
         return `${(p.source_id || '').substring(0, 8)}...->${(p.target_id || '').substring(0, 8)}...`;
+      case 'graph_wiped':
+        return `${p.nodes_deleted} nodes cleared`;
       case 'working_memory_updated':
         return `"${(p.content_preview || '').substring(0, 40)}"`;
       default:
@@ -78,6 +80,23 @@ class InfoPanel {
     const favBtnText = isFav ? '&#9733; Favorited' : '&#9734; Favorite';
     const favBtnClass = isFav ? 'fav-btn active' : 'fav-btn';
 
+    // Position editor for pinned (logo) nodes
+    const isPinned = node.fx !== undefined;
+    const posEditor = isPinned ? `
+      <div class="field">
+        <div class="field-label">Position (fx / fy / fz)</div>
+        <div class="pos-editor">
+          <label>x <input type="number" id="pos-fx" value="${node.fx}" step="0.5"></label>
+          <label>y <input type="number" id="pos-fy" value="${node.fy}" step="0.5"></label>
+          <label>z <input type="number" id="pos-fz" value="${node.fz}" step="0.5"></label>
+          <button class="pos-apply-btn" onclick="applyPosition('${node.id}')">Apply</button>
+        </div>
+      </div>
+      <div class="field">
+        <button class="pos-dump-btn" onclick="dumpAllPositions()">Dump all positions</button>
+      </div>
+    ` : '';
+
     this.content.innerHTML = `
       <div class="field">
         <div class="field-label">ID</div>
@@ -91,6 +110,7 @@ class InfoPanel {
         <div class="field-label">Scope</div>
         <div class="field-value" style="color: ${scopeColor(node.scope)}">${node.scope}</div>
       </div>
+      ${posEditor}
       <div class="field">
         <div class="field-label">Activation Count</div>
         <div class="field-value">${node.activationCount}</div>
@@ -125,9 +145,43 @@ class InfoPanel {
 function toggleFavorite(nodeId) {
   if (!graph) return;
   const isFav = graph.toggleFavorite(nodeId);
-  // Refresh the info panel
   const node = graph.nodeMap.get(nodeId);
   if (node) {
     infoPanel._renderContent(node, graph);
   }
+}
+
+// Global functions for the position editor (logo tuning)
+function applyPosition(nodeId) {
+  if (!graph) return;
+  const node = graph.nodeMap.get(nodeId);
+  if (!node) return;
+
+  const fx = parseFloat(document.getElementById('pos-fx').value);
+  const fy = parseFloat(document.getElementById('pos-fy').value);
+  const fz = parseFloat(document.getElementById('pos-fz').value);
+
+  node.fx = fx; node.x = fx;
+  node.fy = fy; node.y = fy;
+  node.fz = fz; node.z = fz;
+
+  // Poke the graph so it picks up the new positions
+  const data = graph.graph.graphData();
+  graph.graph.graphData(data);
+}
+
+function dumpAllPositions() {
+  if (!graph) return;
+  const lines = [];
+  for (const [id, node] of graph.nodeMap) {
+    if (node.fx !== undefined) {
+      lines.push(`${id}: fx=${node.fx}, fy=${node.fy}, fz=${node.fz}`);
+    }
+  }
+  const output = lines.join('\n');
+  console.log('--- Logo node positions ---\n' + output);
+  // Also copy to clipboard
+  navigator.clipboard.writeText(output).then(() => {
+    console.log('Copied to clipboard!');
+  });
 }

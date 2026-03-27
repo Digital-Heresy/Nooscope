@@ -113,6 +113,19 @@ class MemoryGraph {
         ring.name = 'selectionRing';
         group.add(ring);
 
+        // Birth glow (visible only for newly created nodes)
+        const glowGeo = new THREE.SphereGeometry(size * 3, 16, 12);
+        const glowMat = new THREE.MeshBasicMaterial({
+          color: scopeColor(node.scope),
+          transparent: true,
+          opacity: 0,
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+        });
+        const glow = new THREE.Mesh(glowGeo, glowMat);
+        glow.name = 'birthGlow';
+        group.add(glow);
+
         // Favorite star indicator
         if (self.favorites.has(node.id)) {
           const starGeo = new THREE.RingGeometry(size + 1.0, size + 1.3, 5);
@@ -142,6 +155,9 @@ class MemoryGraph {
       })
       .warmupTicks(100)
       .cooldownTicks(200);
+
+    // Start camera closer (default is ~300, bring to ~120)
+    this.graph.cameraPosition({ x: 0, y: 0, z: 120 });
 
     // Increase repulsion so the dense clique spreads out
     const charge = this.graph.d3Force('charge');
@@ -212,6 +228,27 @@ class MemoryGraph {
         ring.rotation.x += 0.02;
         ring.rotation.y += 0.01;
       }
+
+      // Animate birth glow
+      const glow = node._threeObj.getObjectByName('birthGlow');
+      if (glow && node._glowUntil > now) {
+        const remaining = (node._glowUntil - now) / 3000; // 0→1
+        glow.material.opacity = 0.45 * remaining;
+        const glowScale = 1 + 1.5 * (1 - remaining); // grows outward as it fades
+        glow.scale.set(glowScale, glowScale, glowScale);
+      } else if (glow) {
+        glow.material.opacity = 0;
+      }
+    }
+
+    // Manual camera orbit (ForceGraph3D kills its loop after cooldown)
+    if (this._autoRotate) {
+      const cam = this.graph.camera();
+      const angle = this._autoRotateSpeed * 0.002;
+      const x = cam.position.x, z = cam.position.z;
+      cam.position.x = x * Math.cos(angle) - z * Math.sin(angle);
+      cam.position.z = x * Math.sin(angle) + z * Math.cos(angle);
+      cam.lookAt(0, 0, 0);
     }
 
     requestAnimationFrame(() => this._animate());
@@ -249,37 +286,121 @@ class MemoryGraph {
       salience: nodeData.salience,
       level: 0,
       _pulseUntil: Date.now() + 2000,
+      _glowUntil: Date.now() + 3000,
       _baseSize: this._nodeSize(0),
     };
+    // Pin position if specified (used by intro logo)
+    if (nodeData.fx !== undefined) node.fx = nodeData.fx;
+    if (nodeData.fy !== undefined) node.fy = nodeData.fy;
+    if (nodeData.fz !== undefined) node.fz = nodeData.fz;
+
     this.nodeMap.set(node.id, node);
-    this.graphData.nodes.push(node);
-    this.graph.graphData(this.graphData);
+
+    // Use the graph's own data reference for incremental updates --
+    // d3-force mutates link source/target from IDs to object refs,
+    // so we must work with the live data, not our stale copy.
+    const { nodes, links } = this.graph.graphData();
+    nodes.push(node);
+    this.graph.graphData({ nodes, links });
   }
 
   addEdge(sourceId, targetId, weight, origin) {
-    // Only add if both nodes exist and edge doesn't already exist
-    if (!this.nodeMap.has(sourceId) || !this.nodeMap.has(targetId)) return;
+    // If either node hasn't arrived yet, queue and retry
+    if (!this.nodeMap.has(sourceId) || !this.nodeMap.has(targetId)) {
+      console.warn(`[addEdge] deferred: ${sourceId} -> ${targetId} (missing node)`);
+      this._pendingEdges = this._pendingEdges || [];
+      this._pendingEdges.push({ sourceId, targetId, weight, origin, retries: 0 });
+      this._schedulePendingEdgeFlush();
+      return;
+    }
 
-    const exists = this.graphData.links.some(l => {
-      const src = typeof l.source === 'object' ? l.source.id : l.source;
-      const tgt = typeof l.target === 'object' ? l.target.id : l.target;
-      return src === sourceId && tgt === targetId;
-    });
+    const { nodes, links } = this.graph.graphData();
+
+    const linkId = (l) => typeof l.source === 'object' ? l.source.id : l.source;
+    const linkTgt = (l) => typeof l.target === 'object' ? l.target.id : l.target;
+
+    const exists = links.some(l => linkId(l) === sourceId && linkTgt(l) === targetId);
     if (exists) return;
 
-    this.graphData.links.push({
-      source: sourceId,
-      target: targetId,
+    const werePreviouslyLinked = links.some(l =>
+      (linkId(l) === sourceId && linkTgt(l) === targetId) ||
+      (linkId(l) === targetId && linkTgt(l) === sourceId)
+    );
+
+    const sourceNode = nodes.find(n => n.id === sourceId);
+    const targetNode = nodes.find(n => n.id === targetId);
+
+    if (!sourceNode || !targetNode) {
+      console.warn(`[addEdge] node in map but not in graphData: ${sourceId} -> ${targetId}`);
+      return;
+    }
+
+    links.push({
+      source: sourceNode,
+      target: targetNode,
       weight: weight || 0.3,
       origin: origin || 'co_activation',
     });
 
-    // Re-feed graph data to trigger force simulation update
-    this.graph.graphData(this.graphData);
+    console.log(`[addEdge] ${sourceId} -> ${targetId} (w=${weight}, ${origin})`);
+    this.graph.graphData({ nodes, links });
+
+    if (!werePreviouslyLinked) {
+      this._snapNewConnection(sourceId, targetId);
+    }
+  }
+
+  _schedulePendingEdgeFlush() {
+    if (this._pendingEdgeTimer) return;
+    this._pendingEdgeTimer = setTimeout(() => {
+      this._pendingEdgeTimer = null;
+      const still = [];
+      for (const pe of (this._pendingEdges || [])) {
+        if (this.nodeMap.has(pe.sourceId) && this.nodeMap.has(pe.targetId)) {
+          this.addEdge(pe.sourceId, pe.targetId, pe.weight, pe.origin);
+        } else if (pe.retries < 10) {
+          pe.retries++;
+          still.push(pe);
+        } else {
+          console.warn(`[addEdge] gave up: ${pe.sourceId} -> ${pe.targetId}`);
+        }
+      }
+      this._pendingEdges = still;
+      if (still.length > 0) this._schedulePendingEdgeFlush();
+    }, 500);
+  }
+
+  _snapNewConnection(sourceId, targetId) {
+    // Reheat the simulation so the force pull is visible
+    this.graph.d3ReheatSimulation();
+
+    // Pulse both endpoint nodes
+    this.pulseNode(sourceId);
+    this.pulseNode(targetId);
+
+    // Fire directional particles along the new edge for a few seconds
+    const newLinkPair = new Set([sourceId, targetId]);
+    this.graph
+      .linkDirectionalParticles(l => {
+        const src = typeof l.source === 'object' ? l.source.id : l.source;
+        const tgt = typeof l.target === 'object' ? l.target.id : l.target;
+        return newLinkPair.has(src) && newLinkPair.has(tgt) ? 6 : 0;
+      })
+      .linkDirectionalParticleColor(() => '#00e5ff')
+      .linkDirectionalParticleWidth(2)
+      .linkDirectionalParticleSpeed(0.02);
+
+    // Turn off particles after 3s
+    setTimeout(() => {
+      if (this.graph) {
+        this.graph.linkDirectionalParticles(0);
+      }
+    }, 3000);
   }
 
   updateEdge(sourceId, targetId, weight) {
-    for (const l of this.graphData.links) {
+    const { links } = this.graph.graphData();
+    for (const l of links) {
       const src = typeof l.source === 'object' ? l.source.id : l.source;
       const tgt = typeof l.target === 'object' ? l.target.id : l.target;
       if (src === sourceId && tgt === targetId) {
@@ -339,5 +460,10 @@ class MemoryGraph {
       nodes: this.graphData.nodes.length,
       edges: this.graphData.links.length,
     };
+  }
+
+  setAutoRotate(enabled, speed) {
+    this._autoRotate = enabled;
+    this._autoRotateSpeed = speed || 0.3;
   }
 }

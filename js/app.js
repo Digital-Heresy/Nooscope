@@ -14,6 +14,7 @@ let eventLog = null;
 let infoPanel = null;
 let thridenStream = null;
 let pfStream = null;
+let isConnected = false;
 
 // ---- Init ----
 document.addEventListener('DOMContentLoaded', () => {
@@ -58,6 +59,12 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('connect-btn').addEventListener('click', onConnect);
   document.getElementById('scion-select').addEventListener('change', onScionChange);
   document.getElementById('custom-connect-btn').addEventListener('click', onCustomConnect);
+  document.getElementById('rotate-btn').addEventListener('click', toggleRotation);
+
+  // Pause rotation when user interacts with the 3D view
+  const graphEl = document.getElementById('graph-container');
+  graphEl.addEventListener('mousedown', () => { setRotation(false); });
+  graphEl.addEventListener('touchstart', () => { setRotation(false); });
 });
 
 function onScionChange() {
@@ -71,6 +78,10 @@ function onScionChange() {
 }
 
 function onConnect() {
+  if (isConnected) {
+    disconnectAll();
+    return;
+  }
   const val = document.getElementById('scion-select').value;
   if (val === 'custom') {
     document.getElementById('custom-dialog').classList.remove('hidden');
@@ -78,6 +89,19 @@ function onConnect() {
   }
   const ports = SCION_PORTS[val];
   if (ports) connectTo(ports.thriden, ports.pf);
+}
+
+function disconnectAll() {
+  if (thridenStream) { thridenStream.disconnect(); thridenStream = null; }
+  if (pfStream) { pfStream.disconnect(); pfStream = null; }
+  setConnectedState(false);
+}
+
+function setConnectedState(connected) {
+  isConnected = connected;
+  const btn = document.getElementById('connect-btn');
+  btn.textContent = connected ? 'Disconnect' : 'Connect';
+  btn.style.background = connected ? 'var(--status-disconnected)' : '';
 }
 
 function onCustomConnect() {
@@ -97,8 +121,19 @@ function connectTo(thridenPort, pfPort) {
   const callbacks = {
     onEvent: handleEvent,
     onStatus: handleStatus,
-    onConnect: (name) => console.log(`[${name}] connected`),
-    onDisconnect: (name) => console.log(`[${name}] disconnected`),
+    onConnect: (name) => {
+      console.log(`[${name}] connected`);
+      if (name === 'thriden') setConnectedState(true);
+    },
+    onDisconnect: (name) => {
+      console.log(`[${name}] disconnected`);
+      // Only flip to disconnected if Thriden drops and we didn't manually disconnect
+      if (name === 'thriden' && thridenStream && thridenStream.shouldReconnect) {
+        // Still reconnecting -- leave button as Disconnect
+      } else if (name === 'thriden' && (!thridenStream || !thridenStream.shouldReconnect)) {
+        setConnectedState(false);
+      }
+    },
   };
 
   thridenStream = new TelemetryStream(
@@ -156,6 +191,9 @@ function handleEvent(source, event) {
     case 'session_expired':
       handleSessionExpired(event);
       break;
+    case 'graph_wiped':
+      handleGraphWiped(event);
+      break;
     case 'working_memory_updated':
       eventLog.add(event, source);
       break;
@@ -208,6 +246,12 @@ function handleSessionCreated(event) {
   el.classList.remove('hidden');
 }
 
+function handleGraphWiped(event) {
+  // Clear the entire graph and reset
+  graph.initFromSnapshot({ nodes: [], total_nodes: 0, total_edges: 0 });
+  updateStats();
+}
+
 function handleSessionExpired(event) {
   const el = document.getElementById('session-status');
   el.textContent = `Session ended (${event.payload.message_count || '?'} msgs)`;
@@ -228,40 +272,128 @@ function updateStats() {
   document.getElementById('edge-count').textContent = `${stats.edges} edges`;
 }
 
-// ---- Test graph (renders immediately to verify three.js works) ----
+// ---- Rotation control ----
+
+function setRotation(enabled) {
+  if (!graph) return;
+  graph.setAutoRotate(enabled, 0.3);
+  const btn = document.getElementById('rotate-btn');
+  btn.innerHTML = enabled ? '&#9646;&#9646;' : '&#9654;';
+  btn.className = enabled ? 'rotate-btn playing' : 'rotate-btn paused';
+}
+
+function toggleRotation() {
+  if (!graph) return;
+  setRotation(!graph._autoRotate);
+}
+
+// ---- Startup intro: Thriden logo (triangle + interleaved T) ----
 
 function renderTestGraph() {
-  console.log('Rendering test graph...');
-  const testSnapshot = {
-    nodes: [
-      { id: 'test-1', content_preview: 'Working Memory', scope: 'self', activation_count: 10, salience: 0.8, consolidation_level: 0, edges: [
-        { target_id: 'test-2', weight: 0.7, origin: 'co_activation' },
-        { target_id: 'test-3', weight: 0.5, origin: 'co_activation' },
-      ]},
-      { id: 'test-2', content_preview: 'Recall Pathway', scope: 'universal', activation_count: 8, salience: 0.6, consolidation_level: 0, edges: [
-        { target_id: 'test-1', weight: 0.7, origin: 'co_activation' },
-        { target_id: 'test-4', weight: 0.4, origin: 'co_activation' },
-      ]},
-      { id: 'test-3', content_preview: 'Memory Formation', scope: 'universal', activation_count: 5, salience: 0.5, consolidation_level: 0, edges: [
-        { target_id: 'test-1', weight: 0.5, origin: 'co_activation' },
-        { target_id: 'test-5', weight: 0.3, origin: 'explicit' },
-      ]},
-      { id: 'test-4', content_preview: 'Sensory Input', scope: 'other:external', activation_count: 3, salience: 0.4, consolidation_level: 0, edges: [
-        { target_id: 'test-2', weight: 0.4, origin: 'co_activation' },
-      ]},
-      { id: 'test-5', content_preview: 'Consolidation', scope: 'self', activation_count: 1, salience: 0.3, consolidation_level: 0, edges: [
-        { target_id: 'test-3', weight: 0.3, origin: 'explicit' },
-      ]},
-    ],
-    total_nodes: 5,
-    total_edges: 10,
-  };
+  console.log('Starting intro sequence...');
 
-  try {
-    graph.initFromSnapshot(testSnapshot);
-    updateStats();
-    console.log('Test graph rendered successfully');
-  } catch (e) {
-    console.error('Test graph failed:', e);
-  }
+  // Boot the graph with an empty scene
+  graph.initFromSnapshot({ nodes: [], total_nodes: 0, total_edges: 0 });
+
+  // -- Triangle outline (outer + inner for thickness) --
+  // Oriented vertically, all at z=0
+  const triNodes = [
+    { node_id: 'tri-ot',  content_preview: '', scope: 'other:frame', salience: 0.5, fx: 0,   fy: 18,  fz: 6.5 },
+    { node_id: 'tri-obr', content_preview: '', scope: 'other:frame', salience: 0.5, fx: 16,  fy: -9,  fz: 0.5 },
+    { node_id: 'tri-obl', content_preview: '', scope: 'other:frame', salience: 0.5, fx: -16, fy: -9,  fz: 0.5 },
+    { node_id: 'tri-it',  content_preview: '', scope: 'other:frame', salience: 0.5, fx: 0,   fy: 9,   fz: 4.5 },
+    { node_id: 'tri-ibr', content_preview: '', scope: 'other:frame', salience: 0.5, fx: 8,   fy: -4,  fz: 1.5 },
+    { node_id: 'tri-ibl', content_preview: '', scope: 'other:frame', salience: 0.5, fx: -8,  fy: -4,  fz: 1.5 },
+  ];
+
+  const triEdges = [
+    // Outer triangle
+    { source: 'tri-ot',  target: 'tri-obr', weight: 0.6, origin: 'explicit' },
+    { source: 'tri-obr', target: 'tri-obl', weight: 0.6, origin: 'explicit' },
+    { source: 'tri-obl', target: 'tri-ot',  weight: 0.6, origin: 'explicit' },
+    // Inner triangle
+    { source: 'tri-it',  target: 'tri-ibr', weight: 0.6, origin: 'explicit' },
+    { source: 'tri-ibr', target: 'tri-ibl', weight: 0.6, origin: 'explicit' },
+    { source: 'tri-ibl', target: 'tri-it',  weight: 0.6, origin: 'explicit' },
+    // Corner connections (give the outline thickness)
+    { source: 'tri-ot',  target: 'tri-it',  weight: 0.4, origin: 'explicit' },
+    { source: 'tri-obr', target: 'tri-ibr', weight: 0.4, origin: 'explicit' },
+    { source: 'tri-obl', target: 'tri-ibl', weight: 0.4, origin: 'explicit' },
+  ];
+
+  // -- T shape: wings behind triangle (z=-3), stem in front (z=3) --
+  // Inner corners at z=0 create the weave through the triangle plane
+  const tNodes = [
+    { node_id: 't-tl',  content_preview: '', scope: 'self', salience: 0.6, fx: -15, fy: 6,   fz: 2 },
+    { node_id: 't-tr',  content_preview: '', scope: 'self', salience: 0.6, fx: 15,  fy: 6,   fz: 2 },
+    { node_id: 't-blw', content_preview: '', scope: 'self', salience: 0.6, fx: -20, fy: 0,   fz: 2 },
+    { node_id: 't-brw', content_preview: '', scope: 'self', salience: 0.6, fx: 20,  fy: 0,   fz: 2 },
+    { node_id: 't-il',  content_preview: '', scope: 'self', salience: 0.6, fx: -6,  fy: 0,   fz: 2 },
+    { node_id: 't-ir',  content_preview: '', scope: 'self', salience: 0.6, fx: 6,   fy: 0,   fz: 2 },
+    // Mid-stem taper points (dovetail/coat-tail shape)
+    { node_id: 't-sml', content_preview: '', scope: 'self', salience: 0.6, fx: -6,  fy: -20, fz: 2 },
+    { node_id: 't-smr', content_preview: '', scope: 'self', salience: 0.6, fx: 6,   fy: -20, fz: 2 },
+    // Stem bottom (tapers inward for dovetail)
+    { node_id: 't-sbl', content_preview: '', scope: 'self', salience: 0.6, fx: -3,  fy: -28, fz: 2 },
+    { node_id: 't-sbr', content_preview: '', scope: 'self', salience: 0.6, fx: 3,   fy: -28, fz: 2 },
+  ];
+
+  const tEdges = [
+    // Crossbar top
+    { source: 't-tl',  target: 't-tr',  weight: 0.6, origin: 'co_activation' },
+    // Right wing down
+    { source: 't-tr',  target: 't-brw', weight: 0.6, origin: 'co_activation' },
+    // Right step in
+    { source: 't-brw', target: 't-ir',  weight: 0.6, origin: 'co_activation' },
+    // Right stem down to mid-taper
+    { source: 't-ir',  target: 't-smr', weight: 0.6, origin: 'co_activation' },
+    // Right mid-taper to flared bottom
+    { source: 't-smr', target: 't-sbr', weight: 0.6, origin: 'co_activation' },
+    // Stem bottom
+    { source: 't-sbr', target: 't-sbl', weight: 0.6, origin: 'co_activation' },
+    // Left flared bottom to mid-taper
+    { source: 't-sbl', target: 't-sml', weight: 0.6, origin: 'co_activation' },
+    // Left mid-taper up
+    { source: 't-sml', target: 't-il',  weight: 0.6, origin: 'co_activation' },
+    // Left step out
+    { source: 't-il',  target: 't-blw', weight: 0.6, origin: 'co_activation' },
+    // Left wing up (closes the T)
+    { source: 't-blw', target: 't-tl',  weight: 0.6, origin: 'co_activation' },
+  ];
+
+  // -- Stage the sequence: triangle draws first, then T appears inside it --
+  const nodeMs = 250;   // between each node
+  const edgeMs = 150;   // between each edge
+  const pause  = 400;   // breathing room between phases
+
+  let t = 0;
+
+  // Phase 1: Triangle nodes
+  triNodes.forEach((n, i) => {
+    setTimeout(() => { graph.addNode(n); updateStats(); }, t + i * nodeMs);
+  });
+  t += triNodes.length * nodeMs + pause;
+
+  // Phase 2: Triangle edges
+  triEdges.forEach((e, i) => {
+    setTimeout(() => { graph.addEdge(e.source, e.target, e.weight, e.origin); updateStats(); }, t + i * edgeMs);
+  });
+  t += triEdges.length * edgeMs + pause;
+
+  // Phase 3: T nodes
+  tNodes.forEach((n, i) => {
+    setTimeout(() => { graph.addNode(n); updateStats(); }, t + i * nodeMs);
+  });
+  t += tNodes.length * nodeMs + pause;
+
+  // Phase 4: T edges
+  tEdges.forEach((e, i) => {
+    setTimeout(() => { graph.addEdge(e.source, e.target, e.weight, e.origin); updateStats(); }, t + i * edgeMs);
+  });
+  t += tEdges.length * edgeMs + pause;
+
+  // Phase 5: Slow auto-rotation
+  setTimeout(() => {
+    setRotation(true);
+  }, t);
 }
