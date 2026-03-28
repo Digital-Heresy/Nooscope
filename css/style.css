@@ -274,6 +274,25 @@ button:hover { opacity: 0.8; }
   border-color: #ffd700;
 }
 
+/* Pin button */
+.pin-btn {
+  background: var(--bg-input);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  padding: 4px 12px;
+  cursor: pointer;
+  font-size: 12px;
+  width: 100%;
+}
+
+.pin-btn.active {
+  background: #3a2010;
+  color: #ff6600;
+  border-color: #ff6600;
+}
+
+.pin-btn:hover { opacity: 0.8; }
+
 .fav-btn:hover { opacity: 0.8; }
 
 /* Position editor (logo tuning) */

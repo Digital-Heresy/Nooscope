@@ -80,7 +80,12 @@ class InfoPanel {
     const favBtnText = isFav ? '&#9733; Favorited' : '&#9734; Favorite';
     const favBtnClass = isFav ? 'fav-btn active' : 'fav-btn';
 
-    // Position editor for pinned (logo) nodes
+    // Pin/unpin button
+    const isUserPinned = node._userPinned;
+    const pinBtnText = isUserPinned ? '&#9899; Pinned — Unpin' : '&#9898; Pin in Space';
+    const pinBtnClass = isUserPinned ? 'pin-btn active' : 'pin-btn';
+
+    // Position editor for pinned nodes (logo or user-pinned)
     const isPinned = node.fx !== undefined;
     const posEditor = isPinned ? `
       <div class="field">
@@ -109,6 +114,9 @@ class InfoPanel {
       <div class="field">
         <div class="field-label">Scope</div>
         <div class="field-value" style="color: ${scopeColor(node.scope)}">${node.scope}</div>
+      </div>
+      <div class="field">
+        <button class="${pinBtnClass}" onclick="toggleNodePin('${node.id}')">${pinBtnText}</button>
       </div>
       ${posEditor}
       <div class="field">
@@ -145,6 +153,16 @@ class InfoPanel {
 function toggleFavorite(nodeId) {
   if (!graph) return;
   const isFav = graph.toggleFavorite(nodeId);
+  const node = graph.nodeMap.get(nodeId);
+  if (node) {
+    infoPanel._renderContent(node, graph);
+  }
+}
+
+// Global function for pin/unpin
+function toggleNodePin(nodeId) {
+  if (!graph) return;
+  graph.togglePin(nodeId);
   const node = graph.nodeMap.get(nodeId);
   if (node) {
     infoPanel._renderContent(node, graph);

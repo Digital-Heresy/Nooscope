@@ -21,6 +21,83 @@ const ORIGIN_COLORS = {
   'semantic_clustering':  '#9b59b6',
 };
 
+// How long (ms) before a "hot" edge fully desaturates to gray
+const EDGE_DECAY_MS = 60000;
+const EDGE_COLD_COLOR = { r: 0.3, g: 0.3, b: 0.3 };
+
+// Parse hex color to {r, g, b} in 0-1 range
+function hexToRgb(hex) {
+  const n = parseInt(hex.replace('#', ''), 16);
+  return { r: ((n >> 16) & 0xff) / 255, g: ((n >> 8) & 0xff) / 255, b: (n & 0xff) / 255 };
+}
+
+// Lerp between two {r,g,b} objects, return hex string
+function lerpColor(a, b, t) {
+  const r = Math.round((a.r + (b.r - a.r) * t) * 255);
+  const g = Math.round((a.g + (b.g - a.g) * t) * 255);
+  const bl = Math.round((a.b + (b.b - a.b) * t) * 255);
+  return `#${((1 << 24) | (r << 16) | (g << 8) | bl).toString(16).slice(1)}`;
+}
+
+// Get edge color based on origin + recency
+function edgeColor(link) {
+  const baseHex = ORIGIN_COLORS[link.origin] || '#444444';
+  if (!link._lastTouched) return lerpColor(hexToRgb(baseHex), EDGE_COLD_COLOR, 0.7);
+  const age = Date.now() - link._lastTouched;
+  const decay = Math.min(age / EDGE_DECAY_MS, 1); // 0 = just touched, 1 = fully cold
+  return lerpColor(hexToRgb(baseHex), EDGE_COLD_COLOR, decay * 0.85);
+}
+
+// ---- Brain-topology region mapping ----
+// Back (z-) = universal, Center (z=0) = self, Front (z+) = other/intimate (split L/R)
+
+const REGION = {
+  universal: { x: 0,   y: 0, z: -80 },
+  self:      { x: 0,   y: 0, z: 0 },
+  // other/intimate are assigned dynamically per identity → left or right hemisphere
+};
+
+const REGION_JITTER = 25; // random scatter within a region
+
+// Deterministic hash of a string to a number
+function hashStr(s) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) {
+    h = ((h << 5) - h + s.charCodeAt(i)) | 0;
+  }
+  return h;
+}
+
+// Map to track which hemisphere each "other" identity is assigned to
+const _hemisphereMap = new Map();
+let _nextHemisphere = 0; // alternates 0 (left) / 1 (right)
+
+function regionForScope(scope) {
+  if (scope === 'self') return { ...REGION.self };
+  if (scope === 'universal') return { ...REGION.universal };
+
+  // other:X, intimate:X — extract the identity part
+  const colonIdx = scope.indexOf(':');
+  const identity = colonIdx >= 0 ? scope.substring(colonIdx + 1) : scope;
+
+  if (!_hemisphereMap.has(identity)) {
+    // Assign alternating hemispheres so they spread evenly
+    _hemisphereMap.set(identity, _nextHemisphere);
+    _nextHemisphere = 1 - _nextHemisphere;
+  }
+
+  const side = _hemisphereMap.get(identity) === 0 ? -1 : 1;
+  return { x: side * 50, y: 0, z: 60 };
+}
+
+function jitteredRegion(scope) {
+  const r = regionForScope(scope);
+  r.x += (Math.random() - 0.5) * REGION_JITTER;
+  r.y += (Math.random() - 0.5) * REGION_JITTER;
+  r.z += (Math.random() - 0.5) * REGION_JITTER * 0.5;
+  return r;
+}
+
 class MemoryGraph {
   constructor(containerId) {
     this.container = document.getElementById(containerId);
@@ -38,7 +115,12 @@ class MemoryGraph {
     const links = [];
     this.nodeMap.clear();
 
+    // Reset hemisphere assignments for fresh layout
+    _hemisphereMap.clear();
+    _nextHemisphere = 0;
+
     for (const n of snapshot.nodes) {
+      const pos = jitteredRegion(n.scope);
       const node = {
         id: n.id,
         label: n.content_preview,
@@ -46,6 +128,8 @@ class MemoryGraph {
         activationCount: n.activation_count,
         salience: n.salience,
         level: n.consolidation_level,
+        // Seed position in brain region
+        x: pos.x, y: pos.y, z: pos.z,
         // Visual state
         _pulseUntil: 0,
         _baseSize: this._nodeSize(n.activation_count),
@@ -126,9 +210,22 @@ class MemoryGraph {
         glow.name = 'birthGlow';
         group.add(glow);
 
+        // Pin indicator (diamond shape, visible when user-pinned)
+        const pinGeo = new THREE.RingGeometry(size + 0.8, size + 1.1, 4);
+        const pinMat = new THREE.MeshBasicMaterial({
+          color: '#ff6600',
+          transparent: true,
+          opacity: 0,
+          side: THREE.DoubleSide,
+        });
+        const pin = new THREE.Mesh(pinGeo, pinMat);
+        pin.name = 'pinIndicator';
+        pin.rotation.z = Math.PI / 4; // rotate to diamond
+        group.add(pin);
+
         // Favorite star indicator
         if (self.favorites.has(node.id)) {
-          const starGeo = new THREE.RingGeometry(size + 1.0, size + 1.3, 5);
+          const starGeo = new THREE.RingGeometry(size + 1.3, size + 1.6, 5);
           const starMat = new THREE.MeshBasicMaterial({
             color: '#ffd700',
             transparent: true,
@@ -145,19 +242,32 @@ class MemoryGraph {
       })
       .nodeThreeObjectExtend(false)
       .linkWidth(l => Math.max(0.2, l.weight * 2.5))
-      .linkColor(l => ORIGIN_COLORS[l.origin] || '#444')
-      .linkOpacity(0.3)
+      .linkColor(l => edgeColor(l))
+      .linkOpacity(0.5)
       .linkDirectionalParticles(0)
       .onNodeClick(node => {
         this.selectedNode = node;
         if (this.onNodeSelect) this.onNodeSelect(node);
         this._updateSelectionVisuals();
       })
+      .enableNodeDrag(true)
+      .onNodeDragEnd(node => {
+        // Pin the node where the user dropped it
+        node.fx = node.x;
+        node.fy = node.y;
+        node.fz = node.z;
+        node._userPinned = true;
+        this._updatePinVisuals();
+        // Refresh info panel if this node is selected
+        if (this.selectedNode && this.selectedNode.id === node.id) {
+          if (this.onNodeSelect) this.onNodeSelect(node);
+        }
+      })
       .warmupTicks(100)
       .cooldownTicks(200);
 
-    // Start camera closer (default is ~300, bring to ~120)
-    this.graph.cameraPosition({ x: 0, y: 0, z: 120 });
+    // Camera position — close enough for the intro logo, far enough for a full brain
+    this.graph.cameraPosition({ x: 0, y: 0, z: 200 });
 
     // Increase repulsion so the dense clique spreads out
     const charge = this.graph.d3Force('charge');
@@ -170,6 +280,19 @@ class MemoryGraph {
     if (link) {
       link.distance(40);
     }
+
+    // Homing force — gentle pull toward brain region
+    const HOMING_STRENGTH = 0.03;
+    this.graph.d3Force('homing', (alpha) => {
+      for (const node of this.graph.graphData().nodes) {
+        // Skip pinned nodes (user-pinned or logo)
+        if (node.fx !== undefined) continue;
+        const home = regionForScope(node.scope);
+        node.vx += (home.x - node.x) * HOMING_STRENGTH * alpha;
+        node.vy += (home.y - node.y) * HOMING_STRENGTH * alpha;
+        node.vz += (home.z - node.z) * HOMING_STRENGTH * alpha;
+      }
+    });
 
     // Start animation loop
     this._animate();
@@ -191,6 +314,43 @@ class MemoryGraph {
     return scopeColor(node.scope);
   }
 
+  _updatePinVisuals() {
+    for (const [id, node] of this.nodeMap) {
+      if (!node._threeObj) continue;
+      const pin = node._threeObj.getObjectByName('pinIndicator');
+      if (pin) {
+        pin.material.opacity = node._userPinned ? 0.7 : 0;
+      }
+    }
+  }
+
+  unpinNode(nodeId) {
+    const node = this.nodeMap.get(nodeId);
+    if (!node) return;
+    node.fx = undefined;
+    node.fy = undefined;
+    node.fz = undefined;
+    node._userPinned = false;
+    this._updatePinVisuals();
+    // Reheat so the node finds its natural position
+    if (this.graph) this.graph.d3ReheatSimulation();
+  }
+
+  togglePin(nodeId) {
+    const node = this.nodeMap.get(nodeId);
+    if (!node) return;
+    if (node._userPinned) {
+      this.unpinNode(nodeId);
+    } else {
+      node.fx = node.x;
+      node.fy = node.y;
+      node.fz = node.z;
+      node._userPinned = true;
+      this._updatePinVisuals();
+    }
+    return node._userPinned;
+  }
+
   _updateSelectionVisuals() {
     // Update all node ring opacities
     for (const [id, node] of this.nodeMap) {
@@ -205,6 +365,12 @@ class MemoryGraph {
 
   _animate() {
     if (!this.graph) return;
+
+    // Refresh edge colors every ~2s so decay is visible
+    this._edgeColorTick = (this._edgeColorTick || 0) + 1;
+    if (this._edgeColorTick % 120 === 0) {
+      this.graph.linkColor(l => edgeColor(l));
+    }
 
     const now = Date.now();
 
@@ -227,6 +393,12 @@ class MemoryGraph {
       if (ring && ring.material.opacity > 0) {
         ring.rotation.x += 0.02;
         ring.rotation.y += 0.01;
+      }
+
+      // Spin pin indicator
+      const pinInd = node._threeObj.getObjectByName('pinIndicator');
+      if (pinInd && pinInd.material.opacity > 0) {
+        pinInd.rotation.z += 0.015;
       }
 
       // Animate birth glow
@@ -263,6 +435,24 @@ class MemoryGraph {
     }
   }
 
+  // Spread activation glow along edges connected to a node
+  pulseEdges(nodeId) {
+    if (!this.graph) return;
+    this.graph
+      .linkDirectionalParticles(l => {
+        const src = typeof l.source === 'object' ? l.source.id : l.source;
+        const tgt = typeof l.target === 'object' ? l.target.id : l.target;
+        return (src === nodeId || tgt === nodeId) ? 3 : 0;
+      })
+      .linkDirectionalParticleColor(() => '#ffffff')
+      .linkDirectionalParticleWidth(1.5)
+      .linkDirectionalParticleSpeed(0.015);
+
+    setTimeout(() => {
+      if (this.graph) this.graph.linkDirectionalParticles(0);
+    }, 1500);
+  }
+
   updateNode(nodeId, activationCount, salience) {
     const node = this.nodeMap.get(nodeId);
     if (node) {
@@ -290,9 +480,17 @@ class MemoryGraph {
       _baseSize: this._nodeSize(0),
     };
     // Pin position if specified (used by intro logo)
-    if (nodeData.fx !== undefined) node.fx = nodeData.fx;
-    if (nodeData.fy !== undefined) node.fy = nodeData.fy;
-    if (nodeData.fz !== undefined) node.fz = nodeData.fz;
+    if (nodeData.fx !== undefined) {
+      node.fx = nodeData.fx;
+      node.fy = nodeData.fy;
+      node.fz = nodeData.fz;
+    } else {
+      // Seed position in brain region
+      const pos = jitteredRegion(nodeData.scope);
+      node.x = pos.x;
+      node.y = pos.y;
+      node.z = pos.z;
+    }
 
     this.nodeMap.set(node.id, node);
 
@@ -340,6 +538,7 @@ class MemoryGraph {
       target: targetNode,
       weight: weight || 0.3,
       origin: origin || 'co_activation',
+      _lastTouched: Date.now(),
     });
 
     console.log(`[addEdge] ${sourceId} -> ${targetId} (w=${weight}, ${origin})`);
@@ -405,6 +604,7 @@ class MemoryGraph {
       const tgt = typeof l.target === 'object' ? l.target.id : l.target;
       if (src === sourceId && tgt === targetId) {
         l.weight = weight;
+        l._lastTouched = Date.now();
         break;
       }
     }

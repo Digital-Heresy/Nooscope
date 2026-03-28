@@ -213,6 +213,7 @@ function handleNodeActivated(event) {
   const p = event.payload;
   graph.updateNode(p.node_id, p.activation_count, p.salience);
   graph.pulseNode(p.node_id);
+  graph.pulseEdges(p.node_id);
 }
 
 function handleNodeCreated(event) {
