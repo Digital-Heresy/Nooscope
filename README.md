@@ -26,6 +26,60 @@ index.html?thriden=3030&pf=8100
 
 No build tools, no npm, no dependencies to install. Just HTML + JS.
 
+## Configuration
+
+All connection settings live in `js/config.js` — a plain JS file that declares a single `NOOSCOPE_CONFIG` global. The scion dropdown, ports, and auth tokens are all driven from this file.
+
+```js
+const NOOSCOPE_CONFIG = {
+  scions: {
+    speaker: { thriden: 3030, pf: 8100, token: 'your-raven-token-here' },
+    helix:   { thriden: 3031, pf: 8101, token: 'your-raven-token-here' },
+  },
+  defaults: {
+    thridenPort: 3030,
+    pfPort: 8100,
+  },
+};
+```
+
+### Authentication
+
+Both Thriden and PersonaForge require a bearer token on the WebSocket upgrade request. Since browser `WebSocket` doesn't support custom headers, Nooscope uses the subprotocol trick — the token is sent as `Sec-WebSocket-Protocol: bearer.<token>` and the server echoes it back in the 101 response.
+
+Named scion presets include their tokens in the config. For custom connections, enter the token in the connection dialog.
+
+### Docker
+
+When containerized, override `config.js` via volume mount:
+
+```yaml
+services:
+  nooscope:
+    image: nooscope
+    volumes:
+      - ./nooscope-config.js:/app/js/config.js
+```
+
+Or generate it from environment variables at container startup with an entrypoint script:
+
+```sh
+#!/bin/sh
+cat > /app/js/config.js <<EOF
+const NOOSCOPE_CONFIG = {
+  scions: {
+    speaker: { thriden: ${SPEAKER_THRIDEN_PORT:-3030}, pf: ${SPEAKER_PF_PORT:-8100}, token: '${SPEAKER_TOKEN}' },
+    helix:   { thriden: ${HELIX_THRIDEN_PORT:-3031}, pf: ${HELIX_PF_PORT:-8101}, token: '${HELIX_TOKEN}' },
+  },
+  defaults: {
+    thridenPort: ${DEFAULT_THRIDEN_PORT:-3030},
+    pfPort: ${DEFAULT_PF_PORT:-8100},
+  },
+};
+EOF
+exec nginx -g 'daemon off;'
+```
+
 ## What You See
 
 - **Nodes** -- sized by activation count, colored by scope (blue=about someone, pink=self-reflection, green=knowledge)

@@ -85,9 +85,9 @@ class InfoPanel {
     const pinBtnText = isUserPinned ? '&#9899; Pinned — Unpin' : '&#9898; Pin in Space';
     const pinBtnClass = isUserPinned ? 'pin-btn active' : 'pin-btn';
 
-    // Position editor for pinned nodes (logo or user-pinned)
+    // Position editor for pinned nodes (only when pos controls toggled on)
     const isPinned = node.fx !== undefined;
-    const posEditor = isPinned ? `
+    const posEditor = (isPinned && typeof showPosControls !== 'undefined' && showPosControls) ? `
       <div class="field">
         <div class="field-label">Position (fx / fy / fz)</div>
         <div class="pos-editor">

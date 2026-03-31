@@ -3,10 +3,7 @@
  * Connects to Thriden + PersonaForge WebSocket telemetry and renders a live 3D memory graph.
  */
 
-const SCION_PORTS = {
-  speaker: { thriden: 3030, pf: 8100 },
-  helix:   { thriden: 3031, pf: 8101 },
-};
+const SCION_PRESETS = NOOSCOPE_CONFIG.scions;
 
 // ---- State ----
 let graph = null;
@@ -15,6 +12,8 @@ let infoPanel = null;
 let thridenStream = null;
 let pfStream = null;
 let isConnected = false;
+let showPosControls = false;
+let introRunning = false;
 
 // ---- Init ----
 document.addEventListener('DOMContentLoaded', () => {
@@ -31,9 +30,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
   graph.onNodeSelect = (node) => infoPanel.show(node, graph);
   graph.onNodeUpdated = (node) => {
-    // Refresh info panel if the updated node is currently selected
     infoPanel.refreshIfShowing(node, graph);
   };
+
+  // Populate scion dropdown from config
+  const scionSelect = document.getElementById('scion-select');
+  const customOpt = scionSelect.querySelector('option[value="custom"]');
+  for (const [name, cfg] of Object.entries(SCION_PRESETS)) {
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = `${name.charAt(0).toUpperCase() + name.slice(1)} (${cfg.thriden}/${cfg.pf})`;
+    scionSelect.insertBefore(opt, customOpt);
+  }
+  scionSelect.value = Object.keys(SCION_PRESETS)[0] || 'custom';
 
   // Render a test graph immediately to verify rendering works
   renderTestGraph();
@@ -45,13 +54,13 @@ document.addEventListener('DOMContentLoaded', () => {
   const pfPort = params.get('pf');
 
   if (thridenPort) {
-    // Explicit ports
-    connectTo(parseInt(thridenPort), parseInt(pfPort) || null);
-  } else if (scionParam && SCION_PORTS[scionParam]) {
+    // Explicit ports — no token from URL params (use custom dialog for that)
+    connectTo(parseInt(thridenPort), parseInt(pfPort) || null, null);
+  } else if (scionParam && SCION_PRESETS[scionParam]) {
     // Named scion
     document.getElementById('scion-select').value = scionParam;
-    const ports = SCION_PORTS[scionParam];
-    connectTo(ports.thriden, ports.pf);
+    const ports = SCION_PRESETS[scionParam];
+    connectTo(ports.thriden, ports.pf, ports.token);
   }
   // Otherwise wait for user to click Connect
 
@@ -60,6 +69,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('scion-select').addEventListener('change', onScionChange);
   document.getElementById('custom-connect-btn').addEventListener('click', onCustomConnect);
   document.getElementById('rotate-btn').addEventListener('click', toggleRotation);
+  document.getElementById('pos-toggle-btn').addEventListener('click', togglePosControls);
 
   // Pause rotation when user interacts with the 3D view
   const graphEl = document.getElementById('graph-container');
@@ -78,6 +88,7 @@ function onScionChange() {
 }
 
 function onConnect() {
+  if (introRunning) return;
   if (isConnected) {
     disconnectAll();
     return;
@@ -87,8 +98,8 @@ function onConnect() {
     document.getElementById('custom-dialog').classList.remove('hidden');
     return;
   }
-  const ports = SCION_PORTS[val];
-  if (ports) connectTo(ports.thriden, ports.pf);
+  const ports = SCION_PRESETS[val];
+  if (ports) connectTo(ports.thriden, ports.pf, ports.token);
 }
 
 function disconnectAll() {
@@ -107,13 +118,14 @@ function setConnectedState(connected) {
 function onCustomConnect() {
   const thridenPort = parseInt(document.getElementById('custom-thriden').value);
   const pfPort = parseInt(document.getElementById('custom-pf').value);
+  const token = document.getElementById('custom-token').value.trim() || null;
   document.getElementById('custom-dialog').classList.add('hidden');
-  connectTo(thridenPort, pfPort || null);
+  connectTo(thridenPort, pfPort || null, token);
 }
 
 // ---- Connection ----
 
-function connectTo(thridenPort, pfPort) {
+function connectTo(thridenPort, pfPort, token) {
   // Disconnect existing
   if (thridenStream) thridenStream.disconnect();
   if (pfStream) pfStream.disconnect();
@@ -139,7 +151,8 @@ function connectTo(thridenPort, pfPort) {
   thridenStream = new TelemetryStream(
     'thriden',
     `ws://localhost:${thridenPort}/ws/telemetry`,
-    callbacks
+    callbacks,
+    token
   );
   thridenStream.connect();
 
@@ -147,7 +160,8 @@ function connectTo(thridenPort, pfPort) {
     pfStream = new TelemetryStream(
       'pf',
       `ws://localhost:${pfPort}/ws/telemetry`,
-      callbacks
+      callbacks,
+      token
     );
     pfStream.connect();
   }
@@ -288,6 +302,19 @@ function toggleRotation() {
   setRotation(!graph._autoRotate);
 }
 
+// ---- Position controls toggle ----
+
+function togglePosControls() {
+  showPosControls = !showPosControls;
+  const btn = document.getElementById('pos-toggle-btn');
+  btn.className = showPosControls ? 'pos-toggle-btn active' : 'pos-toggle-btn';
+  // Re-render info panel if it's open
+  if (infoPanel && infoPanel.currentNodeId && graph) {
+    const node = graph.nodeMap.get(infoPanel.currentNodeId);
+    if (node) infoPanel._renderContent(node, graph);
+  }
+}
+
 // ---- Startup intro: Thriden logo (triangle + interleaved T) ----
 
 function renderTestGraph() {
@@ -363,11 +390,13 @@ function renderTestGraph() {
   ];
 
   // -- Stage the sequence: triangle draws first, then T appears inside it --
-  const nodeMs = 250;   // between each node
-  const edgeMs = 150;   // between each edge
-  const pause  = 400;   // breathing room between phases
+  const nodeMs = 150;   // between each node
+  const edgeMs = 80;    // between each edge
+  const pause  = 250;   // breathing room between phases
 
   let t = 0;
+  introRunning = true;
+  document.getElementById('connect-btn').classList.add('disabled');
 
   // Phase 1: Triangle nodes
   triNodes.forEach((n, i) => {
@@ -393,8 +422,10 @@ function renderTestGraph() {
   });
   t += tEdges.length * edgeMs + pause;
 
-  // Phase 5: Slow auto-rotation
+  // Phase 5: Slow auto-rotation + unlock Connect
   setTimeout(() => {
     setRotation(true);
+    introRunning = false;
+    document.getElementById('connect-btn').classList.remove('disabled');
   }, t);
 }

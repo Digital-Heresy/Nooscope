@@ -3,10 +3,11 @@
  * Connects to Thriden and PersonaForge WebSocket endpoints.
  */
 class TelemetryStream {
-  constructor(name, url, callbacks) {
+  constructor(name, url, callbacks, token) {
     this.name = name;
     this.url = url;
     this.callbacks = callbacks;
+    this.token = token || null;
     this.ws = null;
     this.reconnectDelay = 1000;
     this.maxReconnectDelay = 30000;
@@ -18,7 +19,8 @@ class TelemetryStream {
     this._setStatus('reconnecting');
 
     try {
-      this.ws = new WebSocket(this.url);
+      const protocols = this.token ? ['bearer.' + this.token] : undefined;
+      this.ws = new WebSocket(this.url, protocols);
     } catch (e) {
       this._scheduleReconnect();
       return;

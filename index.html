@@ -12,12 +12,12 @@
     <div class="status-left">
       <span class="logo">Nooscope</span>
       <select id="scion-select">
-        <option value="speaker">Speaker (3030/8100)</option>
-        <option value="helix">Helix (3031/8101)</option>
+        <!-- Populated from config.js -->
         <option value="custom">Custom...</option>
       </select>
       <button id="connect-btn">Connect</button>
       <button id="rotate-btn" class="rotate-btn" title="Toggle camera rotation">&#9654;</button>
+      <button id="pos-toggle-btn" class="pos-toggle-btn" title="Toggle position controls">Pos</button>
     </div>
     <div class="status-right">
       <span id="thriden-status" class="status-indicator disconnected">Thriden</span>
@@ -31,6 +31,7 @@
   <div id="custom-dialog" class="hidden">
     <label>Thriden port: <input id="custom-thriden" type="number" value="3030"></label>
     <label>PF port: <input id="custom-pf" type="number" value="8100"></label>
+    <label>Token: <input id="custom-token" type="password" placeholder="raven_token"></label>
     <button id="custom-connect-btn">Connect</button>
   </div>
 
@@ -60,6 +61,7 @@
   <script src="https://unpkg.com/3d-force-graph@1.79.1/dist/3d-force-graph.min.js"></script>
 
   <!-- App modules -->
+  <script src="js/config.js"></script>
   <script src="js/stream.js"></script>
   <script src="js/graph.js"></script>
   <script src="js/effects.js"></script>

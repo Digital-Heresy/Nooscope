@@ -76,6 +76,11 @@ button {
 
 button:hover { opacity: 0.8; }
 
+button.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 #connect-btn.disconnecting {
   background: var(--status-disconnected);
 }
@@ -95,6 +100,19 @@ button:hover { opacity: 0.8; }
 
 .rotate-btn.paused {
   color: var(--text-dim);
+}
+
+.pos-toggle-btn {
+  background: var(--bg-input);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  font-size: 11px;
+  padding: 3px 8px;
+}
+
+.pos-toggle-btn.active {
+  color: var(--accent-purple);
+  border-color: var(--accent-purple);
 }
 
 .status-indicator {

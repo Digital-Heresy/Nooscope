@@ -152,8 +152,9 @@ class MemoryGraph {
   }
 
   _nodeSize(activationCount) {
-    // Keep nodes small -- the THREE sphere radius, not the force-graph nodeVal
-    return Math.max(0.5, Math.log2(activationCount + 1)) * 0.8;
+    // THREE sphere radius. Log scale with a cap so high-activation nodes
+    // don't balloon into a giant blob.
+    return Math.min(3, Math.max(0.5, Math.log2(activationCount + 1) * 0.8));
   }
 
   _render() {
@@ -269,17 +270,8 @@ class MemoryGraph {
     // Camera position — close enough for the intro logo, far enough for a full brain
     this.graph.cameraPosition({ x: 0, y: 0, z: 200 });
 
-    // Increase repulsion so the dense clique spreads out
-    const charge = this.graph.d3Force('charge');
-    if (charge) {
-      charge.strength(-80);
-      charge.distanceMax(300);
-    }
-    // Increase link distance so connected nodes don't collapse
-    const link = this.graph.d3Force('link');
-    if (link) {
-      link.distance(40);
-    }
+    // Scale forces based on graph density so dense graphs don't collapse
+    this._tuneForces();
 
     // Homing force — gentle pull toward brain region
     const HOMING_STRENGTH = 0.03;
@@ -296,6 +288,28 @@ class MemoryGraph {
 
     // Start animation loop
     this._animate();
+  }
+
+  _tuneForces() {
+    const data = this.graph.graphData();
+    const nNodes = data.nodes.length;
+    const nLinks = data.links.length;
+    const density = nNodes > 0 ? nLinks / nNodes : 0;
+
+    // Charge: base -80, ramp up for dense graphs
+    const chargeStrength = -80 - (density * 8);
+    const charge = this.graph.d3Force('charge');
+    if (charge) {
+      charge.strength(chargeStrength);
+      charge.distanceMax(400);
+    }
+
+    // Link distance: stretch links apart in dense graphs
+    const linkDist = 40 + (density * 3);
+    const link = this.graph.d3Force('link');
+    if (link) {
+      link.distance(linkDist);
+    }
   }
 
   _currentNodeSize(node) {
