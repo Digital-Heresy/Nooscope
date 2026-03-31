@@ -112,13 +112,14 @@ class MemoryGraph {
 
   initFromSnapshot(snapshot) {
     const nodes = [];
-    const links = [];
+    const rawLinks = [];
     this.nodeMap.clear();
 
     // Reset hemisphere assignments for fresh layout
     _hemisphereMap.clear();
     _nextHemisphere = 0;
 
+    // Pass 1: build all nodes
     for (const n of snapshot.nodes) {
       const pos = jitteredRegion(n.scope);
       const node = {
@@ -128,9 +129,7 @@ class MemoryGraph {
         activationCount: n.activation_count,
         salience: n.salience,
         level: n.consolidation_level,
-        // Seed position in brain region
         x: pos.x, y: pos.y, z: pos.z,
-        // Visual state
         _pulseUntil: 0,
         _baseSize: this._nodeSize(n.activation_count),
       };
@@ -138,13 +137,19 @@ class MemoryGraph {
       this.nodeMap.set(n.id, node);
 
       for (const e of n.edges) {
-        links.push({
+        rawLinks.push({
           source: n.id,
           target: e.target_id,
           weight: e.weight,
           origin: e.origin,
         });
       }
+    }
+
+    // Pass 2: filter out edges with missing endpoints
+    const links = rawLinks.filter(l => this.nodeMap.has(l.source) && this.nodeMap.has(l.target));
+    if (links.length < rawLinks.length) {
+      console.warn(`[snapshot] dropped ${rawLinks.length - links.length} edges with missing endpoints`);
     }
 
     this.graphData = { nodes, links };
