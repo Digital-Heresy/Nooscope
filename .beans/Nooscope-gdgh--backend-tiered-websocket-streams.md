@@ -5,13 +5,13 @@ status: todo
 type: feature
 priority: high
 created_at: 2026-03-31T09:18:30Z
-updated_at: 2026-03-31T09:18:30Z
+updated_at: 2026-03-31T09:24:51Z
 parent: Nooscope-kyyw
 ---
 
 Add a public (unauthenticated) WebSocket endpoint to Engram that serves stripped telemetry — no content, no payloads, just graph structure.
 
-**NOTE: Work happens in the MindHive repo (Engram service), not Nooscope.**
+**NOTE: Work happens in the MindHive repo (Engram service), not Nooscope. Tracked on MindHive side as MindHive-d91w Phase 1 — same work, cross-referenced.**
 
 Two endpoints (Option A):
 - `GET /ws/telemetry` — existing full stream, requires auth
