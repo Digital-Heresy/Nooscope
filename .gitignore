@@ -1,0 +1,3 @@
+# AI coding agent local state (machine-specific, never commit)
+.claude/
+.pi/
