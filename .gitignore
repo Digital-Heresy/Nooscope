@@ -1,3 +1,6 @@
 # AI coding agent local state (machine-specific, never commit)
 .claude/
 .pi/
+
+# Nooscope config with tokens (use config.example.js as template)
+js/config.js
