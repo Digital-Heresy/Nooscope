@@ -5,6 +5,40 @@
 
 const SCION_PRESETS = NOOSCOPE_CONFIG.scions;
 
+// ---- Mode management ----
+const TOKEN_KEY = 'nooscope_raven_token';
+
+function getToken() {
+  return sessionStorage.getItem(TOKEN_KEY);
+}
+
+function isAdmin() {
+  return !!getToken();
+}
+
+function updateModeUI() {
+  const badge = document.getElementById('mode-badge');
+  const adminBtn = document.getElementById('admin-toggle-btn');
+  const loginBtn = document.getElementById('admin-login-btn');
+  const logoutBtn = document.getElementById('admin-logout-btn');
+
+  if (isAdmin()) {
+    badge.textContent = 'ADMIN';
+    badge.className = 'mode-badge admin';
+    adminBtn.className = 'admin-btn active';
+    adminBtn.innerHTML = '&#128275;'; // open lock
+    if (loginBtn) loginBtn.classList.add('hidden');
+    if (logoutBtn) logoutBtn.classList.remove('hidden');
+  } else {
+    badge.textContent = 'PUBLIC';
+    badge.className = 'mode-badge public';
+    adminBtn.className = 'admin-btn';
+    adminBtn.innerHTML = '&#128274;'; // closed lock
+    if (loginBtn) loginBtn.classList.remove('hidden');
+    if (logoutBtn) logoutBtn.classList.add('hidden');
+  }
+}
+
 // ---- State ----
 let graph = null;
 let eventLog = null;
@@ -14,6 +48,7 @@ let pfStream = null;
 let isConnected = false;
 let showPosControls = false;
 let introRunning = false;
+let currentScion = null; // track active scion config for reconnection
 
 // ---- Init ----
 document.addEventListener('DOMContentLoaded', () => {
@@ -54,15 +89,17 @@ document.addEventListener('DOMContentLoaded', () => {
   const pfPort = params.get('pf');
 
   if (thridenPort) {
-    // Explicit ports — no token from URL params (use custom dialog for that)
-    connectTo(parseInt(thridenPort), parseInt(pfPort) || null, null);
+    // Explicit ports from URL params
+    connectTo({ thriden: parseInt(thridenPort), pf: parseInt(pfPort) || null });
   } else if (scionParam && SCION_PRESETS[scionParam]) {
     // Named scion
     document.getElementById('scion-select').value = scionParam;
-    const ports = SCION_PRESETS[scionParam];
-    connectTo(ports.thriden, ports.pf, ports.token);
+    connectTo(SCION_PRESETS[scionParam]);
   }
   // Otherwise wait for user to click Connect
+
+  // Set initial mode UI
+  updateModeUI();
 
   // UI wiring
   document.getElementById('connect-btn').addEventListener('click', onConnect);
@@ -70,6 +107,15 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('custom-connect-btn').addEventListener('click', onCustomConnect);
   document.getElementById('rotate-btn').addEventListener('click', toggleRotation);
   document.getElementById('pos-toggle-btn').addEventListener('click', togglePosControls);
+
+  // Admin dialog wiring
+  document.getElementById('admin-toggle-btn').addEventListener('click', toggleAdminDialog);
+  document.getElementById('admin-dialog-close').addEventListener('click', closeAdminDialog);
+  document.getElementById('admin-login-btn').addEventListener('click', adminLogin);
+  document.getElementById('admin-logout-btn').addEventListener('click', adminLogout);
+  document.getElementById('admin-dialog').addEventListener('click', (e) => {
+    if (e.target.id === 'admin-dialog') closeAdminDialog();
+  });
 
   // Pause rotation when user interacts with the 3D view
   const graphEl = document.getElementById('graph-container');
@@ -98,8 +144,8 @@ function onConnect() {
     document.getElementById('custom-dialog').classList.remove('hidden');
     return;
   }
-  const ports = SCION_PRESETS[val];
-  if (ports) connectTo(ports.thriden, ports.pf, ports.token);
+  const preset = SCION_PRESETS[val];
+  if (preset) connectTo(preset);
 }
 
 function disconnectAll() {
@@ -118,23 +164,41 @@ function setConnectedState(connected) {
 function onCustomConnect() {
   const thridenPort = parseInt(document.getElementById('custom-thriden').value);
   const pfPort = parseInt(document.getElementById('custom-pf').value);
-  const token = document.getElementById('custom-token').value.trim() || null;
   document.getElementById('custom-dialog').classList.add('hidden');
-  connectTo(thridenPort, pfPort || null, token);
+  connectTo({ thriden: thridenPort, pf: pfPort || null });
 }
 
 // ---- Connection ----
 
-function connectTo(thridenPort, pfPort, token) {
+function buildWsUrl(scionConfig, service) {
+  const token = getToken();
+  const path = token ? '/ws/telemetry' : '/ws/telemetry/public';
+
+  if (scionConfig.host) {
+    // Production: use configured host, match page protocol
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    return `${protocol}//${scionConfig.host}${path}`;
+  } else {
+    // Development: localhost with port
+    const port = service === 'thriden' ? scionConfig.thriden : scionConfig.pf;
+    if (!port) return null;
+    return `ws://localhost:${port}${path}`;
+  }
+}
+
+function connectTo(scionConfig) {
   // Disconnect existing
   if (thridenStream) thridenStream.disconnect();
   if (pfStream) pfStream.disconnect();
+
+  currentScion = scionConfig;
+  const token = getToken();
 
   const callbacks = {
     onEvent: handleEvent,
     onStatus: handleStatus,
     onConnect: (name) => {
-      console.log(`[${name}] connected`);
+      console.log(`[${name}] connected (${isAdmin() ? 'admin' : 'public'})`);
       if (name === 'thriden') setConnectedState(true);
     },
     onDisconnect: (name) => {
@@ -148,22 +212,22 @@ function connectTo(thridenPort, pfPort, token) {
     },
   };
 
-  thridenStream = new TelemetryStream(
-    'thriden',
-    `ws://localhost:${thridenPort}/ws/telemetry`,
-    callbacks,
-    token
-  );
-  thridenStream.connect();
+  const thridenUrl = buildWsUrl(scionConfig, 'thriden');
+  if (thridenUrl) {
+    thridenStream = new TelemetryStream('thriden', thridenUrl, callbacks, token);
+    thridenStream.connect();
+  }
 
-  if (pfPort) {
-    pfStream = new TelemetryStream(
-      'pf',
-      `ws://localhost:${pfPort}/ws/telemetry`,
-      callbacks,
-      token
-    );
+  const pfUrl = buildWsUrl(scionConfig, 'pf');
+  if (pfUrl) {
+    pfStream = new TelemetryStream('pf', pfUrl, callbacks, token);
     pfStream.connect();
+  }
+}
+
+function reconnectWithCurrentMode() {
+  if (currentScion) {
+    connectTo(currentScion);
   }
 }
 
@@ -312,6 +376,47 @@ function togglePosControls() {
   if (infoPanel && infoPanel.currentNodeId && graph) {
     const node = graph.nodeMap.get(infoPanel.currentNodeId);
     if (node) infoPanel._renderContent(node, graph);
+  }
+}
+
+// ---- Admin login/logout ----
+
+function toggleAdminDialog() {
+  const dialog = document.getElementById('admin-dialog');
+  dialog.classList.toggle('hidden');
+  if (!dialog.classList.contains('hidden')) {
+    document.getElementById('admin-token-input').focus();
+  }
+}
+
+function closeAdminDialog() {
+  document.getElementById('admin-dialog').classList.add('hidden');
+}
+
+function adminLogin() {
+  const input = document.getElementById('admin-token-input');
+  const token = input.value.trim();
+  if (!token) return;
+
+  sessionStorage.setItem(TOKEN_KEY, token);
+  input.value = '';
+  closeAdminDialog();
+  updateModeUI();
+
+  // Reconnect with admin credentials if we have an active scion
+  if (currentScion) {
+    reconnectWithCurrentMode();
+  }
+}
+
+function adminLogout() {
+  sessionStorage.removeItem(TOKEN_KEY);
+  closeAdminDialog();
+  updateModeUI();
+
+  // Reconnect in public mode if we have an active scion
+  if (currentScion) {
+    reconnectWithCurrentMode();
   }
 }
 

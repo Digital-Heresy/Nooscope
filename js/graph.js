@@ -124,7 +124,7 @@ class MemoryGraph {
       const pos = jitteredRegion(n.scope);
       const node = {
         id: n.id,
-        label: n.content_preview,
+        label: n.content_preview || n.id.substring(0, 12) + '...',
         scope: n.scope,
         activationCount: n.activation_count,
         salience: n.salience,
@@ -489,7 +489,7 @@ class MemoryGraph {
   addNode(nodeData) {
     const node = {
       id: nodeData.node_id,
-      label: nodeData.content_preview,
+      label: nodeData.content_preview || nodeData.node_id.substring(0, 12) + '...',
       scope: nodeData.scope,
       activationCount: 0,
       salience: nodeData.salience,

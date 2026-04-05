@@ -24,6 +24,8 @@
       <button id="pos-toggle-btn" class="pos-toggle-btn" title="Toggle position controls">Pos</button>
     </div>
     <div class="status-right">
+      <span id="mode-badge" class="mode-badge public">PUBLIC</span>
+      <button id="admin-toggle-btn" class="admin-btn" title="Admin login">&#128274;</button>
       <span id="thriden-status" class="status-indicator disconnected">Thriden</span>
       <span id="pf-status" class="status-indicator disconnected">PF</span>
       <span id="node-count" class="stat">0 nodes</span>
@@ -35,8 +37,24 @@
   <div id="custom-dialog" class="hidden">
     <label>Thriden port: <input id="custom-thriden" type="number" value="3030"></label>
     <label>PF port: <input id="custom-pf" type="number" value="8100"></label>
-    <label>Token: <input id="custom-token" type="password" placeholder="raven_token"></label>
     <button id="custom-connect-btn">Connect</button>
+  </div>
+
+  <!-- Admin login dialog -->
+  <div id="admin-dialog" class="hidden">
+    <div class="admin-dialog-inner">
+      <div class="panel-header">
+        <span>Admin Login</span>
+        <button id="admin-dialog-close">&times;</button>
+      </div>
+      <div class="admin-dialog-body">
+        <label>Raven Token: <input id="admin-token-input" type="password" placeholder="paste token"></label>
+        <div class="admin-dialog-actions">
+          <button id="admin-login-btn">Login</button>
+          <button id="admin-logout-btn" class="hidden">Logout</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- 3D graph container -->

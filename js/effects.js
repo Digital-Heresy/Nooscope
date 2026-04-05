@@ -32,7 +32,7 @@ class EventLog {
       case 'node_activated':
         return `${(p.node_id || '').substring(0, 8)}... act=${p.activation_count}`;
       case 'node_created':
-        return `${(p.node_id || '').substring(0, 8)}... "${(p.content_preview || '').substring(0, 40)}"`;
+        return `${(p.node_id || '').substring(0, 8)}... scope=${p.scope}`;
       case 'recall_fired':
         return `${(p.node_ids || []).length} nodes recalled`;
       case 'memory_formed':
@@ -48,7 +48,7 @@ class EventLog {
       case 'graph_wiped':
         return `${p.nodes_deleted} nodes cleared`;
       case 'working_memory_updated':
-        return `"${(p.content_preview || '').substring(0, 40)}"`;
+        return 'working memory updated';
       default:
         return JSON.stringify(p).substring(0, 60);
     }
@@ -102,15 +102,19 @@ class InfoPanel {
       </div>
     ` : '';
 
+    const contentField = (typeof isAdmin === 'function' && isAdmin()) ? `
+      <div class="field">
+        <div class="field-label">Content</div>
+        <div class="field-value" style="color: var(--text-dim); font-style: italic">Stripped from telemetry stream</div>
+      </div>
+    ` : '';
+
     this.content.innerHTML = `
       <div class="field">
         <div class="field-label">ID</div>
         <div class="field-value highlight">${node.id}</div>
       </div>
-      <div class="field">
-        <div class="field-label">Content</div>
-        <div class="field-value">${this._escape(node.label || '')}</div>
-      </div>
+      ${contentField}
       <div class="field">
         <div class="field-label">Scope</div>
         <div class="field-value" style="color: ${scopeColor(node.scope)}">${node.scope}</div>

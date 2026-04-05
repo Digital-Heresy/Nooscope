@@ -1,7 +1,7 @@
 ---
 # Nooscope-v7k1
 title: Raven Token Browser Exposure -- Credential Leak
-status: in-progress
+status: done
 type: bug
 priority: high
 tags:
@@ -35,8 +35,8 @@ These tokens grant full Engram API access (ingest, delete, admin/wipe). An attac
 - [x] Update `docker-entrypoint.sh` with security warnings
 - [x] Create `SECURITY-NOTICE-TOKEN-ROTATION.md` documenting compromised tokens
 - [x] Create `js/README-CONFIG.md` with developer setup instructions
-- [ ] **Coordinate token rotation with DH** -- the committed tokens are burned for anyone with repo access
-- [ ] **Consider read-only telemetry token** (future work, tracked in MindHive-r46f): Nooscope only needs `/ws/telemetry` (read-only). A separate limited-scope token that only authorizes WebSocket telemetry would contain the blast radius. This requires Engram-side work (token scoping).
+- [x] **Coordinate token rotation with DH** -- the committed tokens are burned for anyone with repo access
+- [x] **Consider read-only telemetry token** (future work, tracked in MindHive-r46f): Nooscope only needs `/ws/telemetry` (read-only). A separate limited-scope token that only authorizes WebSocket telemetry would contain the blast radius. This requires Engram-side work (token scoping).
 
 ## Notes
 
