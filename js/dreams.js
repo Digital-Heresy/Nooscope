@@ -308,7 +308,7 @@ function formatCost(credits) {
 
 async function fetchDreamList() {
   try {
-    const data = await apiJson('/morpheus/dreams?has_content=true');
+    const data = await apiJson('/morpheus/dreams?has_storyboard=true');
     DreamState.dreams = Array.isArray(data) ? data : (data.dreams || []);
     updateDreamCount(DreamState.dreams.length);
     renderDreamList();
