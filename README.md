@@ -1,40 +1,79 @@
 # Nooscope
 
-3D memory visualization for [Thriden](https://github.com/Digital-Heresy/MindHive) + [PersonaForge](https://github.com/Digital-Heresy/PersonaForge) telemetry.
+3D memory visualization for the [MindHive](https://github.com/Digital-Heresy/MindHive) cognitive stack.
 
-Nooscope is the "MRI machine" -- it observes both structural signals (nodes, edges, activation) from Thriden and behavioral signals (recall events, memory formation, sessions) from PersonaForge, rendering them as a live 3D force-directed graph.
+Nooscope is the "MRI machine" for AI cognition — it observes structural signals (nodes, edges, activation) from [Engram](https://github.com/Digital-Heresy/MindHive) and behavioral signals (recall, memory formation, dreams) from [PersonaForge](https://github.com/Digital-Heresy/PersonaForge), rendering them as a live 3D force-directed brain graph.
+
+## Pages
+
+| Page | Purpose |
+|------|---------|
+| **Activity** (`index.html`) | Live 3D brain visualizer — WebSocket telemetry from Engram + PersonaForge |
+| **Dreams** (`dreams.html`) | Morpheus dream storyboard viewer — browse, render, and view AI dream cycles |
 
 ## Quick Start
 
-1. Make sure Thriden and PersonaForge are running with WebSocket telemetry enabled
-2. Open `index.html` in a browser
-3. Select a scion (Speaker/Helix) or enter custom ports
-4. Click Connect
+### Local Development
 
-Or open directly with URL params:
+No build tools, no npm. Just HTML + JS + CDN deps.
+
+1. Ensure Engram and PersonaForge are running with telemetry enabled
+2. Copy `js/config.example.js` to `js/config.js` and set your ports
+3. Serve the directory over HTTP (e.g., `python -m http.server 8080`)
+4. Open `http://localhost:8080`
+
+URL params for auto-connect: `?scion=speaker`, `?scion=helix`
+
+### Docker (recommended)
+
+Nooscope runs as part of the MindHive docker-compose stack:
+
+```bash
+docker compose up --build nooscope -d
+```
+
+Access at `http://localhost:8080`. The nginx proxy handles routing to Engram and PersonaForge backends — no CORS issues, no direct port access needed.
+
+## Architecture
 
 ```
-index.html?scion=speaker
-index.html?thriden=3030&pf=8100
+Browser
+  ├── index.html (Activity)
+  │   ├── ws → Engram /ws/telemetry[/public]     (snapshot, node/edge events)
+  │   └── ws → PersonaForge /ws/telemetry[/public] (recall, sessions, dreams)
+  │
+  └── dreams.html (Dreams)
+      └── REST → PersonaForge /morpheus/*          (dream list, detail, render)
+
+Docker: nginx reverse-proxies all endpoints per-scion (/speaker/*, /helix/*)
 ```
 
-## Requirements
+### JS Modules (plain `<script>` tags, order matters)
 
-- A modern browser (Chrome, Firefox, Edge)
-- Thriden instance with `/ws/telemetry` endpoint (v0.2.6+)
-- PersonaForge instance with `/ws/telemetry` endpoint (optional, for behavioral events)
+1. **`js/config.js`** — `NOOSCOPE_CONFIG` with scion presets (ports, hosts)
+2. **`js/stream.js`** — `TelemetryStream` WebSocket client with exponential-backoff reconnect
+3. **`js/graph.js`** — `MemoryGraph` + `RegionGeometry` — 3D force-directed graph with layered brain topology
+4. **`js/effects.js`** — `EventLog`, `InfoPanel` UI classes
+5. **`js/app.js`** — Activity page entry point, event dispatch, public/admin mode
+6. **`js/dreams.js`** — Dreams page, Morpheus REST client, storyboard rendering
 
-No build tools, no npm, no dependencies to install. Just HTML + JS.
+## Authentication
+
+**Activity page**: Two modes controlled via the status bar lock icon.
+- **Public mode** — connects to `/ws/telemetry/public` (no auth, content-stripped)
+- **Admin mode** — connects to `/ws/telemetry` with `Sec-WebSocket-Protocol: bearer.<token>` subprotocol auth. Token stored in `sessionStorage` (clears on tab close).
+
+**Dreams page**: Uses `morpheus_token` (separate from raven token) stored per-scion in `localStorage`. Sent as `Authorization: Bearer <token>` on REST requests.
 
 ## Configuration
 
-All connection settings live in `js/config.js` — a plain JS file that declares a single `NOOSCOPE_CONFIG` global. The scion dropdown, ports, and auth tokens are all driven from this file.
+`js/config.js` is gitignored. Copy from `js/config.example.js`:
 
 ```js
 const NOOSCOPE_CONFIG = {
   scions: {
-    speaker: { thriden: 3030, pf: 8100, token: 'your-raven-token-here' },
-    helix:   { thriden: 3031, pf: 8101, token: 'your-raven-token-here' },
+    speaker: { thriden: 3030, pf: 8100 },
+    helix:   { thriden: 3031, pf: 8101 },
   },
   defaults: {
     thridenPort: 3030,
@@ -43,63 +82,29 @@ const NOOSCOPE_CONFIG = {
 };
 ```
 
-### Authentication
-
-Both Thriden and PersonaForge require a bearer token on the WebSocket upgrade request. Since browser `WebSocket` doesn't support custom headers, Nooscope uses the subprotocol trick — the token is sent as `Sec-WebSocket-Protocol: bearer.<token>` and the server echoes it back in the 101 response.
-
-Named scion presets include their tokens in the config. For custom connections, enter the token in the connection dialog.
-
-### Docker
-
-When containerized, override `config.js` via volume mount:
-
-```yaml
-services:
-  nooscope:
-    image: nooscope
-    volumes:
-      - ./nooscope-config.js:/app/js/config.js
-```
-
-Or generate it from environment variables at container startup with an entrypoint script:
-
-```sh
-#!/bin/sh
-cat > /app/js/config.js <<EOF
-const NOOSCOPE_CONFIG = {
-  scions: {
-    speaker: { thriden: ${SPEAKER_THRIDEN_PORT:-3030}, pf: ${SPEAKER_PF_PORT:-8100}, token: '${SPEAKER_TOKEN}' },
-    helix:   { thriden: ${HELIX_THRIDEN_PORT:-3031}, pf: ${HELIX_PF_PORT:-8101}, token: '${HELIX_TOKEN}' },
-  },
-  defaults: {
-    thridenPort: ${DEFAULT_THRIDEN_PORT:-3030},
-    pfPort: ${DEFAULT_PF_PORT:-8100},
-  },
-};
-EOF
-exec nginx -g 'daemon off;'
-```
+In Docker, `docker-entrypoint.sh` generates this from environment variables. Set `NOOSCOPE_HOST` for production (adds per-scion proxy prefixes).
 
 ## What You See
 
-- **Nodes** -- sized by activation count, colored by scope (blue=about someone, pink=self-reflection, green=knowledge)
-- **Edges** -- width by association weight, colored by origin (orange=co-activation, white=explicit, purple=semantic)
-- **Pulses** -- nodes flash when activated by a query
-- **Recall arcs** -- when PersonaForge recalls memories, particles flow along the edges connecting recalled nodes
-- **Live updates** -- new nodes fade in, edges thicken as they're reinforced
+### Activity Page
 
-## Architecture
+- **Nodes** — sized by activation count, colored by scope (pink=self, green=universal, blue=other/intimate)
+- **Edges** — width by weight, colored by origin (orange=co-activation, white=explicit, purple=semantic clustering)
+- **Layout** — brain-topology regions with layered consolidation depth (episodic=surface, cluster=mid, abstract=core)
+- **Pulses** — nodes flash on activation, birth glow on creation
+- **Recall arcs** — particles flow along edges when memories are recalled
 
-```
-Nooscope (browser)
-  |
-  |-- ws://localhost:{thriden_port}/ws/telemetry
-  |     snapshot on connect, then node_activated, node_created, edge_*
-  |
-  |-- ws://localhost:{pf_port}/ws/telemetry
-  |     recall_fired, memory_formed, session_*, working_memory_updated
-```
+### Dreams Page
+
+- **Timeline** — chronological dream list with stat badges (clusters, mutations, proposals, panels)
+- **Storyboard** — panel images with entry-type badges, prompts, cohesion notes
+- **Render** — trigger BFL Flux image generation (Klein/Pro models), continue mode for partial renders
+- **Credits** — BFL balance display with USD estimate
 
 ## License
 
 AGPL-3.0
+
+## Wiki
+
+See the [Nooscope Wiki](https://github.com/Digital-Heresy/Nooscope/wiki) for detailed documentation.
