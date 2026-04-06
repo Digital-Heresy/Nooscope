@@ -51,8 +51,9 @@ PF events represent the brain *doing things*. They should feel like neural impul
 
 ## Children (implementation order)
 
-1. **Nooscope-rnrm** — Working Memory Spotlight
-2. **Nooscope-4xpf** — Session Ambient State
-3. **Nooscope-yy0y** — Recall Wavefront Propagation (best after v60v fwob)
-4. **Nooscope-0bp4** — Memory Formation Signal (deps: v60v fwob)
-5. **Nooscope-niac** — Outbound Action Signals (future stub)
+1. **Nooscope-cj8w** — PF Public Telemetry: Reflex Categories & Content Stripping
+2. **Nooscope-rnrm** — Working Memory Spotlight
+3. **Nooscope-4xpf** — Session Ambient State
+4. **Nooscope-yy0y** — Recall Wavefront Propagation (best after v60v fwob)
+5. **Nooscope-0bp4** — Memory Formation Signal (deps: v60v fwob)
+6. **Nooscope-niac** — Outbound Action Signals (future stub)

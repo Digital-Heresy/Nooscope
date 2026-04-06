@@ -49,54 +49,105 @@ function edgeColor(link) {
 }
 
 // ---- Brain-topology region mapping ----
+// Layered geometry: scope → region center, consolidation_level → shell depth,
+// salience → prominence within shell. Creates cortex-like structure.
+//
 // Back (z-) = universal, Center (z=0) = self, Front (z+) = other/intimate (split L/R)
+// Outer shell = episodic (level 0), mid = cluster (level 1), core = abstract (level 2)
 
-const REGION = {
-  universal: { x: 0,   y: 0, z: -80 },
-  self:      { x: 0,   y: 0, z: 0 },
-  // other/intimate are assigned dynamically per identity → left or right hemisphere
+const RegionGeometry = {
+  // Region center positions
+  centers: {
+    universal: { x: 0, y: 0, z: -80 },
+    self:      { x: 0, y: 0, z: 0 },
+  },
+
+  // Shell radii per consolidation level [episodic, cluster, abstract]
+  // Each level is a band: nodes scatter between shellRadii[level] and shellRadii[level-1]
+  shellRadii: {
+    major: [30, 18, 8],   // universal, self
+    minor: [24, 14, 6],   // per-identity lobes (other/intimate)
+  },
+
+  // Hemisphere tracking for other/intimate identities
+  _hemisphereMap: new Map(),
+  _nextHemisphere: 0,
+
+  reset() {
+    this._hemisphereMap.clear();
+    this._nextHemisphere = 0;
+  },
+
+  // Get the center point for a scope (no layering, used for region-level queries)
+  regionCenter(scope) {
+    if (scope === 'self') return { ...this.centers.self };
+    if (scope === 'universal') return { ...this.centers.universal };
+
+    const identity = this._extractIdentity(scope);
+    const side = this._assignHemisphere(identity);
+    return { x: side * 50, y: 0, z: 60 };
+  },
+
+  // Target position for homing force: scope + consolidation level → shell center
+  // No jitter — this is the stable attractor point
+  homePosition(scope, level) {
+    const center = this.regionCenter(scope);
+    const radii = this._isMinorRegion(scope) ? this.shellRadii.minor : this.shellRadii.major;
+    const radius = radii[Math.min(level || 0, 2)];
+
+    // Place home target at shell radius along the axis from origin to region center
+    // This gives each level a distinct distance from the region center
+    const dist = Math.sqrt(center.x ** 2 + center.y ** 2 + center.z ** 2);
+    if (dist < 1) {
+      // Self region is at origin — layer along y-axis instead
+      return { x: 0, y: radius * 0.3, z: 0 };
+    }
+    // Offset from center inward toward origin by shell radius
+    const scale = radius / Math.max(dist, 1);
+    return {
+      x: center.x + center.x * scale * 0.3,
+      y: center.y + radius * 0.2,
+      z: center.z + center.z * scale * 0.3,
+    };
+  },
+
+  // Seed position for initial node placement: scattered on shell surface
+  seedPosition(scope, level, salience) {
+    const center = this.regionCenter(scope);
+    const radii = this._isMinorRegion(scope) ? this.shellRadii.minor : this.shellRadii.major;
+    const outerRadius = radii[Math.min(level || 0, 2)];
+
+    // Salience shifts within the shell band: high salience = tighter to center
+    const salFactor = 1 - (salience || 0.5) * 0.3; // 0.7–1.0
+    const radius = outerRadius * salFactor;
+
+    // Random point on sphere surface at this radius from region center
+    const theta = Math.random() * Math.PI * 2;
+    const phi = Math.acos(2 * Math.random() - 1);
+    return {
+      x: center.x + radius * Math.sin(phi) * Math.cos(theta),
+      y: center.y + radius * Math.sin(phi) * Math.sin(theta),
+      z: center.z + radius * Math.cos(phi),
+    };
+  },
+
+  _extractIdentity(scope) {
+    const colonIdx = scope.indexOf(':');
+    return colonIdx >= 0 ? scope.substring(colonIdx + 1) : scope;
+  },
+
+  _assignHemisphere(identity) {
+    if (!this._hemisphereMap.has(identity)) {
+      this._hemisphereMap.set(identity, this._nextHemisphere);
+      this._nextHemisphere = 1 - this._nextHemisphere;
+    }
+    return this._hemisphereMap.get(identity) === 0 ? -1 : 1;
+  },
+
+  _isMinorRegion(scope) {
+    return scope.startsWith('other:') || scope.startsWith('intimate:');
+  },
 };
-
-const REGION_JITTER = 25; // random scatter within a region
-
-// Deterministic hash of a string to a number
-function hashStr(s) {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) {
-    h = ((h << 5) - h + s.charCodeAt(i)) | 0;
-  }
-  return h;
-}
-
-// Map to track which hemisphere each "other" identity is assigned to
-const _hemisphereMap = new Map();
-let _nextHemisphere = 0; // alternates 0 (left) / 1 (right)
-
-function regionForScope(scope) {
-  if (scope === 'self') return { ...REGION.self };
-  if (scope === 'universal') return { ...REGION.universal };
-
-  // other:X, intimate:X — extract the identity part
-  const colonIdx = scope.indexOf(':');
-  const identity = colonIdx >= 0 ? scope.substring(colonIdx + 1) : scope;
-
-  if (!_hemisphereMap.has(identity)) {
-    // Assign alternating hemispheres so they spread evenly
-    _hemisphereMap.set(identity, _nextHemisphere);
-    _nextHemisphere = 1 - _nextHemisphere;
-  }
-
-  const side = _hemisphereMap.get(identity) === 0 ? -1 : 1;
-  return { x: side * 50, y: 0, z: 60 };
-}
-
-function jitteredRegion(scope) {
-  const r = regionForScope(scope);
-  r.x += (Math.random() - 0.5) * REGION_JITTER;
-  r.y += (Math.random() - 0.5) * REGION_JITTER;
-  r.z += (Math.random() - 0.5) * REGION_JITTER * 0.5;
-  return r;
-}
 
 class MemoryGraph {
   constructor(containerId) {
@@ -116,12 +167,11 @@ class MemoryGraph {
     this.nodeMap.clear();
 
     // Reset hemisphere assignments for fresh layout
-    _hemisphereMap.clear();
-    _nextHemisphere = 0;
+    RegionGeometry.reset();
 
     // Pass 1: build all nodes
     for (const n of snapshot.nodes) {
-      const pos = jitteredRegion(n.scope);
+      const pos = RegionGeometry.seedPosition(n.scope, n.consolidation_level, n.salience);
       const node = {
         id: n.id,
         label: n.content_preview || n.id.substring(0, 12) + '...',
@@ -278,13 +328,13 @@ class MemoryGraph {
     // Scale forces based on graph density so dense graphs don't collapse
     this._tuneForces();
 
-    // Homing force — gentle pull toward brain region
+    // Homing force — gentle pull toward layered brain region
     const HOMING_STRENGTH = 0.03;
     this.graph.d3Force('homing', (alpha) => {
       for (const node of this.graph.graphData().nodes) {
         // Skip pinned nodes (user-pinned or logo)
         if (node.fx !== undefined) continue;
-        const home = regionForScope(node.scope);
+        const home = RegionGeometry.homePosition(node.scope, node.level || 0);
         node.vx += (home.x - node.x) * HOMING_STRENGTH * alpha;
         node.vy += (home.y - node.y) * HOMING_STRENGTH * alpha;
         node.vz += (home.z - node.z) * HOMING_STRENGTH * alpha;
@@ -504,8 +554,8 @@ class MemoryGraph {
       node.fy = nodeData.fy;
       node.fz = nodeData.fz;
     } else {
-      // Seed position in brain region
-      const pos = jitteredRegion(nodeData.scope);
+      // Seed position in brain region (layered by consolidation level)
+      const pos = RegionGeometry.seedPosition(nodeData.scope, nodeData.consolidation_level || 0, nodeData.salience);
       node.x = pos.x;
       node.y = pos.y;
       node.z = pos.z;

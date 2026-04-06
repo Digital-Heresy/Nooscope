@@ -1,7 +1,7 @@
 ---
 # Nooscope-fwob
 title: 'Layered Region Geometry'
-status: todo
+status: done
 type: feature
 priority: high
 created_at: 2026-04-05T00:00:00Z
@@ -29,12 +29,12 @@ A `RegionGeometry` global that computes layered target positions:
 
 ## Checklist
 
-- [ ] Create `RegionGeometry` object/class replacing `REGION`, `regionForScope()`, `jitteredRegion()`
-- [ ] Accept (scope, consolidation_level, salience) and return target position
-- [ ] Update `initFromSnapshot()` to pass consolidation_level to geometry
-- [ ] Update `addNode()` to pass consolidation_level to geometry
-- [ ] Update homing force to pull toward layered positions (needs node's consolidation_level)
-- [ ] Expose as global so Epic 2 features can query it
+- [x] Create `RegionGeometry` object/class replacing `REGION`, `regionForScope()`, `jitteredRegion()`
+- [x] Accept (scope, consolidation_level, salience) and return target position
+- [x] Update `initFromSnapshot()` to pass consolidation_level to geometry
+- [x] Update `addNode()` to pass consolidation_level to geometry
+- [x] Update homing force to pull toward layered positions (needs node's consolidation_level)
+- [x] Expose as global so Epic 2 features can query it
 
 ## Risk
 
