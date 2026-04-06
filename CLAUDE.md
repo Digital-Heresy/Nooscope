@@ -49,4 +49,24 @@ From PersonaForge: `recall_fired`, `memory_formed`, `session_created`, `session_
 
 ## Scion presets
 
-Defined in `SCION_PORTS` (app.js): Speaker (3030/8100), Helix (3031/8101). "Custom" shows a port input dialog.
+Defined in `NOOSCOPE_CONFIG.scions` (config.js): Speaker (3030/8100), Helix (3031/8101). "Custom" shows a port input dialog.
+
+## Pages
+
+- **`index.html`** — Main 3D brain visualizer (WebSocket telemetry)
+- **`dreams.html`** — Morpheus dream storyboard viewer (REST API to PersonaForge)
+
+## Docker deployment (local dev testing)
+
+Nooscope runs as a container in the MindHive docker-compose stack. The Dockerfile does a local COPY (not repo clone), so changes are tested by rebuilding without committing.
+
+**To rebuild and test changes**, run:
+```
+docker compose -f C:/Users/ronin/Documents/Projects/MindHive/docker-compose.yml up --build nooscope -d
+```
+
+Then access at `http://localhost:8080` (index.html) or `http://localhost:8080/dreams.html`.
+
+This rebuilds only the Nooscope container using the local working directory. The nginx proxy handles CORS and routes `/morpheus/` requests to PersonaForge and `/ws/telemetry` to Engram.
+
+**When to rebuild**: After any HTML, CSS, JS, nginx.conf, or Dockerfile changes that need live testing against the backend services. Always offer to rebuild when the user wants to test changes.

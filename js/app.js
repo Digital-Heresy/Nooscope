@@ -175,9 +175,11 @@ function buildWsUrl(scionConfig, service) {
   const path = token ? '/ws/telemetry' : '/ws/telemetry/public';
 
   if (scionConfig.host) {
-    // Production: use configured host, match page protocol
+    // Production: use proxy path prefix per scion (e.g. /speaker/ws/telemetry)
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${protocol}//${scionConfig.host}${path}`;
+    const prefix = scionConfig.pfPrefix || '';
+    const wsPath = service === 'pf' ? `/ws/pf/telemetry${token ? '' : '/public'}` : path;
+    return `${protocol}//${scionConfig.host}${prefix}${wsPath}`;
   } else {
     // Development: localhost with port
     const port = service === 'thriden' ? scionConfig.thriden : scionConfig.pf;

@@ -56,6 +56,28 @@ body {
   letter-spacing: 2px;
 }
 
+.nav-links {
+  display: flex;
+  gap: 4px;
+}
+
+.nav-link {
+  color: var(--text-dim);
+  text-decoration: none;
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 3px;
+}
+
+.nav-link:hover {
+  color: var(--text-primary);
+}
+
+.nav-link.active {
+  color: var(--accent-cyan);
+  background: var(--bg-input);
+}
+
 select, input, button {
   background: var(--bg-input);
   color: var(--text-primary);

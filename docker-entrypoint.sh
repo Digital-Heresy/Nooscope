@@ -15,7 +15,8 @@ if [ -n "$NOOSCOPE_HOST" ]; then
 cat > "$CONFIG_PATH" <<EOF
 const NOOSCOPE_CONFIG = {
   scions: {
-    speaker: { host: '${NOOSCOPE_HOST}' },
+    speaker: { host: '${NOOSCOPE_HOST}', pfPrefix: '/speaker' },
+    helix:   { host: '${NOOSCOPE_HOST}', pfPrefix: '/helix' },
   },
   defaults: {},
 };
