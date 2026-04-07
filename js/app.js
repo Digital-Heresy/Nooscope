@@ -67,6 +67,7 @@ document.addEventListener('DOMContentLoaded', () => {
   graph.onNodeUpdated = (node) => {
     infoPanel.refreshIfShowing(node, graph);
   };
+  graph.onSentinelSelect = (meta) => infoPanel.showSentinel(meta);
 
   // Populate scion dropdown from config
   const scionSelect = document.getElementById('scion-select');
@@ -74,7 +75,8 @@ document.addEventListener('DOMContentLoaded', () => {
   for (const [name, cfg] of Object.entries(SCION_PRESETS)) {
     const opt = document.createElement('option');
     opt.value = name;
-    opt.textContent = `${name.charAt(0).toUpperCase() + name.slice(1)} (${cfg.thriden}/${cfg.pf})`;
+    const label = name.charAt(0).toUpperCase() + name.slice(1);
+    opt.textContent = cfg.host ? label : `${label} (${cfg.thriden}/${cfg.pf})`;
     scionSelect.insertBefore(opt, customOpt);
   }
   scionSelect.value = Object.keys(SCION_PRESETS)[0] || 'custom';
@@ -107,6 +109,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('custom-connect-btn').addEventListener('click', onCustomConnect);
   document.getElementById('rotate-btn').addEventListener('click', toggleRotation);
   document.getElementById('pos-toggle-btn').addEventListener('click', togglePosControls);
+  document.getElementById('brain-toggle-btn').addEventListener('click', toggleBrain);
 
   // Admin dialog wiring
   document.getElementById('admin-toggle-btn').addEventListener('click', toggleAdminDialog);
@@ -261,21 +264,46 @@ function handleEvent(source, event) {
       break;
     case 'recall_fired':
       handleRecallFired(event);
+      if (graph) graph.pulseRecall();
+      break;
+    case 'memory_promoted':
+      if (graph) graph.pulseRecall();
       break;
     case 'memory_formed':
       handleMemoryFormed(event);
+      if (graph) graph.pulseFormation();
       break;
     case 'session_created':
       handleSessionCreated(event);
+      if (graph) graph.pulseSocialCreated();
       break;
     case 'session_expired':
       handleSessionExpired(event);
+      if (graph) graph.pulseSocialExpired();
       break;
     case 'graph_wiped':
       handleGraphWiped(event);
       break;
     case 'working_memory_updated':
       eventLog.add(event, source);
+      if (graph) graph.pulseFormation();
+      break;
+    case 'message_received':
+    case 'pi_tool_result':
+    case 'action_completed':
+    case 'pi_text_delta':
+      if (graph) graph.pulseEyes();
+      break;
+    case 'backup_completed':
+    case 'cron_fired':
+      if (graph) graph.pulseVital();
+      break;
+    case 'dream_started':
+    case 'dream_completed':
+    case 'dream_storyboard_ready':
+      if (graph) graph.pulseCircadian();
+      break;
+    default:
       break;
   }
 
@@ -379,6 +407,15 @@ function togglePosControls() {
     const node = graph.nodeMap.get(infoPanel.currentNodeId);
     if (node) infoPanel._renderContent(node, graph);
   }
+}
+
+// ---- Brain wireframe toggle ----
+
+function toggleBrain() {
+  if (!graph) return;
+  const visible = graph.toggleBrain();
+  const btn = document.getElementById('brain-toggle-btn');
+  btn.className = visible ? 'brain-btn active' : 'brain-btn';
 }
 
 // ---- Admin login/logout ----

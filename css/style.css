@@ -137,6 +137,19 @@ button.disabled {
   border-color: var(--accent-purple);
 }
 
+.brain-btn {
+  background: var(--bg-input);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  font-size: 11px;
+  padding: 3px 8px;
+}
+
+.brain-btn.active {
+  color: var(--accent-cyan);
+  border-color: var(--accent-cyan);
+}
+
 .status-indicator {
   padding: 3px 8px;
   border-radius: 3px;

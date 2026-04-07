@@ -56,69 +56,108 @@ function edgeColor(link) {
 // Outer shell = episodic (level 0), mid = cluster (level 1), core = abstract (level 2)
 
 const RegionGeometry = {
-  // Region center positions
-  centers: {
-    universal: { x: 0, y: 0, z: -80 },
-    self:      { x: 0, y: 0, z: 0 },
+  // Multi-region layout — nodes round-robin across pockets inside the brain mesh.
+  // Brain mesh: scale 25, offset (0, 5, -10). Interior bounds: x ±40, y [-30,45], z [-65,45]
+  //
+  // Universal: 2 small regions (1 per hemi), occipital (back)
+  // Self: 4 medium regions (2 per hemi), parietal (top)
+  // Other/intimate: 6 regions (3 per hemi), along hemisphere channels
+
+  regions: {
+    universal: [
+      { x: -15, y: 15, z: -55 },   // left occipital
+      { x:  15, y: 15, z: -55 },   // right occipital
+    ],
+    self: [
+      { x: -15, y: 45, z:   5 },   // left parietal front
+      { x:  15, y: 45, z:   5 },   // right parietal front
+      { x: -15, y: 45, z: -25 },   // left parietal rear
+      { x:  15, y: 45, z: -25 },   // right parietal rear
+    ],
+    other: [
+      { x: -28, y: 15, z:  25 },   // left hemi front
+      { x:  28, y: 15, z:  25 },   // right hemi front
+      { x: -32, y: 15, z:  -5 },   // left hemi mid
+      { x:  32, y: 15, z:  -5 },   // right hemi mid
+      { x: -28, y: 15, z: -35 },   // left hemi rear
+      { x:  28, y: 15, z: -35 },   // right hemi rear
+      { x: -25, y: -5, z: -35 },   // left hemi rear-low (temporal sag)
+      { x:  25, y: -5, z: -35 },   // right hemi rear-low (temporal sag)
+    ],
   },
 
   // Shell radii per consolidation level [episodic, cluster, abstract]
-  // Each level is a band: nodes scatter between shellRadii[level] and shellRadii[level-1]
   shellRadii: {
-    major: [30, 18, 8],   // universal, self
-    minor: [24, 14, 6],   // per-identity lobes (other/intimate)
+    universal: [8, 5, 3],
+    self:      [10, 6, 3],
+    other:     [10, 6, 3],
   },
 
-  // Hemisphere tracking for other/intimate identities
-  _hemisphereMap: new Map(),
-  _nextHemisphere: 0,
+  // Round-robin counters per scope type
+  _counters: { universal: 0, self: 0, other: 0 },
+
+  // Node-to-region assignment (nodeId → region index) for stable homing
+  _nodeRegions: new Map(),
 
   reset() {
-    this._hemisphereMap.clear();
-    this._nextHemisphere = 0;
+    this._counters = { universal: 0, self: 0, other: 0 };
+    this._nodeRegions.clear();
   },
 
-  // Get the center point for a scope (no layering, used for region-level queries)
-  regionCenter(scope) {
-    if (scope === 'self') return { ...this.centers.self };
-    if (scope === 'universal') return { ...this.centers.universal };
-
-    const identity = this._extractIdentity(scope);
-    const side = this._assignHemisphere(identity);
-    return { x: side * 50, y: 0, z: 60 };
+  // Resolve scope to region type key
+  _scopeType(scope) {
+    if (scope === 'universal') return 'universal';
+    if (scope === 'self') return 'self';
+    return 'other';  // other:*, intimate:*
   },
 
-  // Target position for homing force: scope + consolidation level → shell center
-  // No jitter — this is the stable attractor point
-  homePosition(scope, level) {
-    const center = this.regionCenter(scope);
-    const radii = this._isMinorRegion(scope) ? this.shellRadii.minor : this.shellRadii.major;
-    const radius = radii[Math.min(level || 0, 2)];
+  // Assign a node to its next round-robin region, or return existing assignment
+  _assignRegion(nodeId, scope) {
+    if (this._nodeRegions.has(nodeId)) return this._nodeRegions.get(nodeId);
+    const type = this._scopeType(scope);
+    const regions = this.regions[type];
+    const idx = this._counters[type] % regions.length;
+    this._counters[type]++;
+    const assignment = { type, idx };
+    this._nodeRegions.set(nodeId, assignment);
+    return assignment;
+  },
 
-    // Place home target at shell radius along the axis from origin to region center
-    // This gives each level a distinct distance from the region center
-    const dist = Math.sqrt(center.x ** 2 + center.y ** 2 + center.z ** 2);
-    if (dist < 1) {
-      // Self region is at origin — layer along y-axis instead
-      return { x: 0, y: radius * 0.3, z: 0 };
+  // Get the center point for a node's assigned region
+  regionCenter(scope, nodeId) {
+    if (nodeId) {
+      const assignment = this._assignRegion(nodeId, scope);
+      const center = this.regions[assignment.type][assignment.idx];
+      return { ...center };
     }
-    // Offset from center inward toward origin by shell radius
-    const scale = radius / Math.max(dist, 1);
+    // Fallback: return first region center for this scope type
+    const type = this._scopeType(scope);
+    return { ...this.regions[type][0] };
+  },
+
+  // Target position for homing force
+  homePosition(scope, level, nodeId) {
+    const center = this.regionCenter(scope, nodeId);
+    const type = this._scopeType(scope);
+    const radii = this.shellRadii[type];
+    const radius = radii[Math.min(level || 0, 2)];
+    // Home target is the region center offset slightly by level
     return {
-      x: center.x + center.x * scale * 0.3,
+      x: center.x,
       y: center.y + radius * 0.2,
-      z: center.z + center.z * scale * 0.3,
+      z: center.z,
     };
   },
 
-  // Seed position for initial node placement: scattered on shell surface
-  seedPosition(scope, level, salience) {
-    const center = this.regionCenter(scope);
-    const radii = this._isMinorRegion(scope) ? this.shellRadii.minor : this.shellRadii.major;
+  // Seed position for initial node placement: scattered within region pocket
+  seedPosition(scope, level, salience, nodeId) {
+    const center = this.regionCenter(scope, nodeId);
+    const type = this._scopeType(scope);
+    const radii = this.shellRadii[type];
     const outerRadius = radii[Math.min(level || 0, 2)];
 
     // Salience shifts within the shell band: high salience = tighter to center
-    const salFactor = 1 - (salience || 0.5) * 0.3; // 0.7–1.0
+    const salFactor = 1 - (salience || 0.5) * 0.3;
     const radius = outerRadius * salFactor;
 
     // Random point on sphere surface at this radius from region center
@@ -130,24 +169,47 @@ const RegionGeometry = {
       z: center.z + radius * Math.cos(phi),
     };
   },
-
-  _extractIdentity(scope) {
-    const colonIdx = scope.indexOf(':');
-    return colonIdx >= 0 ? scope.substring(colonIdx + 1) : scope;
-  },
-
-  _assignHemisphere(identity) {
-    if (!this._hemisphereMap.has(identity)) {
-      this._hemisphereMap.set(identity, this._nextHemisphere);
-      this._nextHemisphere = 1 - this._nextHemisphere;
-    }
-    return this._hemisphereMap.get(identity) === 0 ? -1 : 1;
-  },
-
-  _isMinorRegion(scope) {
-    return scope.startsWith('other:') || scope.startsWith('intimate:');
-  },
 };
+
+// ---- Minimal OBJ parser ----
+// Parses OBJ text with named objects into an array of { name, geometry }
+// Only handles `v`, `f`, and `o` lines (no normals, UVs, or materials)
+function parseOBJ(text) {
+  const globalVerts = [];
+  const objects = [];
+  let current = null;
+
+  for (const line of text.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed[0] === '#') continue;
+
+    if (trimmed.startsWith('v ')) {
+      const parts = trimmed.split(/\s+/);
+      globalVerts.push(parseFloat(parts[1]), parseFloat(parts[2]), parseFloat(parts[3]));
+    } else if (trimmed.startsWith('o ')) {
+      current = { name: trimmed.substring(2).trim(), indices: [] };
+      objects.push(current);
+    } else if (trimmed.startsWith('f ')) {
+      if (!current) { current = { name: 'default', indices: [] }; objects.push(current); }
+      const parts = trimmed.split(/\s+/).slice(1);
+      // Fan-triangulate for quads+
+      const verts = parts.map(p => parseInt(p.split('/')[0]) - 1);
+      for (let i = 1; i < verts.length - 1; i++) {
+        current.indices.push(verts[0], verts[i], verts[i + 1]);
+      }
+    }
+  }
+
+  return objects.map(obj => {
+    const positions = new Float32Array(globalVerts);
+    const indices = new Uint16Array(obj.indices);
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+    geometry.computeVertexNormals();
+    return { name: obj.name, geometry };
+  });
+}
 
 class MemoryGraph {
   constructor(containerId) {
@@ -159,6 +221,43 @@ class MemoryGraph {
     this.favorites = new Set();  // session-only favorited node IDs
     this.onNodeSelect = null;   // callback
     this.onNodeUpdated = null;  // callback for live refresh of info panel
+    this._brainGroup = null;    // THREE.Group for brain wireframe overlay
+    this._brainVisible = true;
+    this._nerveLeft = null;     // Solid sphere at left eye center
+    this._nerveRight = null;    // Solid sphere at right eye center
+    this._nerveScale = 0;       // Current pulse scale (0 = resting, 1 = max)
+    this._vitalDot = null;      // Brainstem sentinel — backup_completed
+    this._vitalScale = 0;
+    this._socialCreated = null;  // Frontal left (blue hemi) — session_created
+    this._socialCreatedScale = 0;
+    this._socialExpired = null;  // Frontal right (pink hemi) — session_expired
+    this._socialExpiredScale = 0;
+    this._recallDot = null;      // Temporal seam forward — recall_fired, memory_promoted
+    this._recallScale = 0;
+    this._formationDot = null;   // Temporal seam rearward — memory_formed, working_memory_updated
+    this._formationScale = 0;
+    this._circadianDot = null;   // Thalamus — dream events
+    this._circadianScale = 0;
+    this._sentinelRaycaster = new THREE.Raycaster();
+    this._sentinelMouse = new THREE.Vector2();
+    this.onSentinelSelect = null; // callback for sentinel clicks
+
+    // Causal tracer system — comet trails between PF sentinels
+    this._lastSentinelName = null;
+    this._lastSentinelTime = 0;
+    this._tracers = [];  // { line, dot, startPos, endPos, progress, fadeOut }
+
+    // Sentinel metadata — keyed by mesh name
+    this._sentinelMeta = {
+      'nerve-left':      { label: 'Left Eye (I/O)', category: 'Input + Agency', region: 'Eyes', events: ['message_received', 'pi_text_delta', 'pi_tool_result', 'action_completed'], description: 'All external I/O — inbound messages, Pi streaming output, tool calls, and action completions. The eyes see everything.' },
+      'nerve-right':     { label: 'Right Eye (I/O)', category: 'Input + Agency', region: 'Eyes', events: ['message_received', 'pi_text_delta', 'pi_tool_result', 'action_completed'], description: 'All external I/O — inbound messages, Pi streaming output, tool calls, and action completions. The eyes see everything.' },
+      'vital':           { label: 'Brainstem (Vital)', category: 'Vital', region: 'Brainstem', events: ['backup_completed', 'cron_fired'], description: 'Autonomic maintenance — housekeeping and scheduled tasks. Pulses on backups and cron jobs.' },
+      'social-created':  { label: 'Session Open (Social)', category: 'Social', region: 'Frontal Lobe (L)', events: ['session_created'], description: 'A new conversation session has started. The brain is engaging with the world.' },
+      'social-expired':  { label: 'Session Close (Social)', category: 'Social', region: 'Frontal Lobe (R)', events: ['session_expired'], description: 'A conversation session has ended. The brain is disengaging.' },
+      'recall':          { label: 'Recall', category: 'Recall', region: 'Temporal Lobe', events: ['recall_fired', 'memory_promoted'], description: 'Memory retrieval — the brain searching and finding existing traces. Fires on every query.' },
+      'formation':       { label: 'Formation', category: 'Formation', region: 'Temporal Lobe', events: ['memory_formed', 'working_memory_updated'], description: 'Memory encoding — new memories crystallizing into the graph. Working memory buffer updates.' },
+      'circadian':       { label: 'Circadian', category: 'Circadian', region: 'Thalamus', events: ['dream_started', 'dream_completed', 'dream_storyboard_ready'], description: 'Sleep/wake rhythm — dream cycles and consolidation. The gatekeeper between waking and sleeping states.' },
+    };
   }
 
   initFromSnapshot(snapshot) {
@@ -171,7 +270,7 @@ class MemoryGraph {
 
     // Pass 1: build all nodes
     for (const n of snapshot.nodes) {
-      const pos = RegionGeometry.seedPosition(n.scope, n.consolidation_level, n.salience);
+      const pos = RegionGeometry.seedPosition(n.scope, n.consolidation_level, n.salience, n.id);
       const node = {
         id: n.id,
         label: n.content_preview || n.id.substring(0, 12) + '...',
@@ -209,7 +308,7 @@ class MemoryGraph {
   _nodeSize(activationCount) {
     // THREE sphere radius. Log scale with a cap so high-activation nodes
     // don't balloon into a giant blob.
-    return Math.min(3, Math.max(0.5, Math.log2(activationCount + 1) * 0.8));
+    return Math.min(1.5, Math.max(0.3, Math.log2(activationCount + 1) * 0.4));
   }
 
   _render() {
@@ -297,7 +396,7 @@ class MemoryGraph {
         return group;
       })
       .nodeThreeObjectExtend(false)
-      .linkWidth(l => Math.max(0.2, l.weight * 2.5))
+      .linkWidth(l => Math.max(0.1, l.weight * 1.0))
       .linkColor(l => edgeColor(l))
       .linkOpacity(0.5)
       .linkDirectionalParticles(0)
@@ -328,21 +427,352 @@ class MemoryGraph {
     // Scale forces based on graph density so dense graphs don't collapse
     this._tuneForces();
 
-    // Homing force — gentle pull toward layered brain region
-    const HOMING_STRENGTH = 0.03;
+    // Homing force — pull toward assigned region pocket (stronger for blue/other)
+    const HOMING_BASE = 0.25;
+    const HOMING_OTHER = 0.40;
     this.graph.d3Force('homing', (alpha) => {
       for (const node of this.graph.graphData().nodes) {
-        // Skip pinned nodes (user-pinned or logo)
         if (node.fx !== undefined) continue;
-        const home = RegionGeometry.homePosition(node.scope, node.level || 0);
-        node.vx += (home.x - node.x) * HOMING_STRENGTH * alpha;
-        node.vy += (home.y - node.y) * HOMING_STRENGTH * alpha;
-        node.vz += (home.z - node.z) * HOMING_STRENGTH * alpha;
+        const home = RegionGeometry.homePosition(node.scope, node.level || 0, node.id);
+        const strength = (node.scope.startsWith('other:') || node.scope.startsWith('intimate:'))
+          ? HOMING_OTHER : HOMING_BASE;
+        node.vx += (home.x - node.x) * strength * alpha;
+        node.vy += (home.y - node.y) * strength * alpha;
+        node.vz += (home.z - node.z) * strength * alpha;
       }
     });
 
+    // Fishbowl containment — brain hull as ellipsoid boundary
+    // Brain mesh world bounds: center (0, 5, -10), half-extents (~50, 45, 65)
+    // Shrink slightly so nodes stay inside the wireframe, not on it
+    const HULL_CENTER = { x: 0, y: 5, z: -10 };
+    const HULL_RADII = { x: 45, y: 40, z: 60 };
+    const HULL_PUSH = 0.5;  // how hard to push back when outside
+
+    this.graph.d3Force('containment', (alpha) => {
+      for (const node of this.graph.graphData().nodes) {
+        if (node.fx !== undefined) continue;
+        // Normalized distance from hull center (>1 = outside ellipsoid)
+        const dx = (node.x - HULL_CENTER.x) / HULL_RADII.x;
+        const dy = (node.y - HULL_CENTER.y) / HULL_RADII.y;
+        const dz = (node.z - HULL_CENTER.z) / HULL_RADII.z;
+        const dist = dx * dx + dy * dy + dz * dz;
+        if (dist > 1) {
+          // Push back toward center proportional to how far outside
+          const overshoot = Math.sqrt(dist) - 1;
+          const push = HULL_PUSH * overshoot * alpha;
+          node.vx -= dx * push * HULL_RADII.x;
+          node.vy -= dy * push * HULL_RADII.y;
+          node.vz -= dz * push * HULL_RADII.z;
+        }
+      }
+    });
+
+    // Sentinel click handler — raycasts against PF dots before force-graph handles it
+    this.container.addEventListener('click', (e) => this._onSentinelClick(e));
+
     // Start animation loop
     this._animate();
+
+    // Load brain wireframe overlay
+    this._addBrainOverlay();
+  }
+
+  _getSentinelMeshes() {
+    return [this._nerveLeft, this._nerveRight, this._vitalDot,
+            this._socialCreated, this._socialExpired,
+            this._recallDot, this._formationDot,
+            this._circadianDot].filter(Boolean);
+  }
+
+  _onSentinelClick(e) {
+    if (!this._brainGroup || !this._brainVisible) return;
+    const rect = this.container.getBoundingClientRect();
+    this._sentinelMouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    this._sentinelMouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    this._sentinelRaycaster.setFromCamera(this._sentinelMouse, this.graph.camera());
+
+    const meshes = this._getSentinelMeshes();
+    // Sentinel meshes are children of brainGroup which has scale/offset,
+    // so we need to raycast against them in world space
+    const intersects = this._sentinelRaycaster.intersectObjects(meshes, false);
+    if (intersects.length > 0) {
+      const name = intersects[0].object.name;
+      const meta = this._sentinelMeta[name];
+      if (meta && this.onSentinelSelect) {
+        this.onSentinelSelect(meta);
+      }
+    }
+  }
+
+  _addBrainOverlay() {
+    // Remove previous brain if re-rendering
+    if (this._brainGroup) {
+      this.graph.scene().remove(this._brainGroup);
+      this._brainGroup = null;
+    }
+
+    fetch('models/brain.obj')
+      .then(r => r.text())
+      .then(text => {
+        if (!this.graph) return;
+        const objects = parseOBJ(text);
+        const group = new THREE.Group();
+
+        // Brain mesh bounds: x[-2.07, 2.09], y[-1.71, 2.09], z[-2.66, 2.67]
+        // RegionGeometry bounds: x[-50, 50], y[~0], z[-80, 60]
+        // Scale brain to fill the graph space
+        // Brain z-span: 5.33 → Graph z-span: 140 → scale ~26
+        // Use 25 for round numbers, then offset to align centers
+        const BRAIN_SCALE = 25;
+        // Brain center is ~(0, 0.19, 0.005) — nearly centered
+        // Graph center is ~(0, 0, -10) — shifted back because universal is at z=-80
+        // Offset brain so front (z+) maps to frontal (z=+60) and back (z-) to occipital (z=-80)
+        // Brain front at z=2.67 * 25 = 66.75, back at z=-2.66 * 25 = -66.5
+        // That's roughly [-67, 67] which maps well to [-80, 60] with a small z-offset
+        const BRAIN_OFFSET = { x: 0, y: 5, z: -10 };
+
+        for (const obj of objects) {
+          const isRightHemi = obj.name.includes('rh');
+          const material = new THREE.MeshBasicMaterial({
+            color: isRightHemi ? 0xff4a9e : 0x4a9eff,
+            wireframe: true,
+            transparent: true,
+            opacity: 0.15,
+            depthWrite: false,
+          });
+          const mesh = new THREE.Mesh(obj.geometry, material);
+          group.add(mesh);
+        }
+
+        // Eye fixtures (local coordinates — group.scale handles the rest)
+        const eyeGeom = new THREE.SphereGeometry(0.28, 12, 8);
+
+        const leftEyeMat = new THREE.MeshBasicMaterial({
+          color: 0xff4a9e, wireframe: true, transparent: true, opacity: 0.3, depthWrite: false,
+        });
+        const leftEye = new THREE.Mesh(eyeGeom, leftEyeMat);
+        leftEye.position.set(-0.7, -1.2, 2.5);
+        leftEye.name = 'eye-left';
+        group.add(leftEye);
+
+        const rightEyeMat = new THREE.MeshBasicMaterial({
+          color: 0x4a9eff, wireframe: true, transparent: true, opacity: 0.3, depthWrite: false,
+        });
+        const rightEye = new THREE.Mesh(eyeGeom, rightEyeMat);
+        rightEye.position.set(0.7, -1.2, 2.5);
+        rightEye.name = 'eye-right';
+        group.add(rightEye);
+
+        // Optic nerve lines
+        const leftNerveMat = new THREE.LineBasicMaterial({ color: 0xff4a9e, transparent: true, opacity: 0.15 });
+        const leftNerveGeom = new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(-0.7, -1.2, 2.5),
+          new THREE.Vector3(-0.3, -0.2, 1.2),
+          new THREE.Vector3(-0.1, -0.1, 0.0),
+        ]);
+        group.add(new THREE.Line(leftNerveGeom, leftNerveMat));
+
+        const rightNerveMat = new THREE.LineBasicMaterial({ color: 0x4a9eff, transparent: true, opacity: 0.15 });
+        const rightNerveGeom = new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(0.7, -1.2, 2.5),
+          new THREE.Vector3(0.3, -0.2, 1.2),
+          new THREE.Vector3(0.1, -0.1, 0.0),
+        ]);
+        group.add(new THREE.Line(rightNerveGeom, rightNerveMat));
+
+        // ---- PF Sentinel dots ----
+        // All PF dots are orange (0xff8c00). Unit sphere geometry, scaled dynamically.
+        const PF_COLOR = 0xff8c00;
+        const sentinelGeom = new THREE.SphereGeometry(1, 12, 8);
+        const SENTINEL_REST = 0.06;
+
+        function makeSentinel(name, pos) {
+          const mat = new THREE.MeshBasicMaterial({
+            color: PF_COLOR, transparent: true, opacity: 0.9,
+          });
+          const mesh = new THREE.Mesh(sentinelGeom, mat);
+          mesh.position.set(pos.x, pos.y, pos.z);
+          mesh.scale.setScalar(SENTINEL_REST);
+          mesh.name = name;
+          return mesh;
+        }
+
+        // Input — eye nerve dots (pulse on message_received)
+        this._nerveLeft = makeSentinel('nerve-left', { x: -0.7, y: -1.2, z: 2.5 });
+        group.add(this._nerveLeft);
+        this._nerveRight = makeSentinel('nerve-right', { x: 0.7, y: -1.2, z: 2.5 });
+        group.add(this._nerveRight);
+        this._nerveScale = 0;
+
+        // Vital — brainstem, rear-low midline (pulse on backup_completed)
+        this._vitalDot = makeSentinel('vital', { x: 0, y: -1.3, z: -2.2 });
+        group.add(this._vitalDot);
+        this._vitalScale = 0;
+
+        // Social — frontal lobe, split across hemispheres
+        // session_created → blue (left) hemi side, front-upper
+        this._socialCreated = makeSentinel('social-created', { x: -1.0, y: 0.8, z: 1.8 });
+        group.add(this._socialCreated);
+        this._socialCreatedScale = 0;
+        // session_expired → pink (right) hemi side, front-upper (mirror)
+        this._socialExpired = makeSentinel('social-expired', { x: 1.0, y: 0.8, z: 1.8 });
+        group.add(this._socialExpired);
+        this._socialExpiredScale = 0;
+
+        // Recall — temporal seam, forward (pulse on recall_fired, memory_promoted)
+        this._recallDot = makeSentinel('recall', { x: 0, y: -0.4, z: 0.8 });
+        group.add(this._recallDot);
+        this._recallScale = 0;
+
+        // Formation — temporal seam, rearward (pulse on memory_formed, working_memory_updated)
+        this._formationDot = makeSentinel('formation', { x: 0, y: -0.4, z: -0.3 });
+        group.add(this._formationDot);
+        this._formationScale = 0;
+
+        // Circadian — thalamus, deep center near brainstem (pulse on dream events)
+        this._circadianDot = makeSentinel('circadian', { x: 0, y: -0.8, z: -1.5 });
+        group.add(this._circadianDot);
+        this._circadianScale = 0;
+
+        // Apply scale and offset
+        group.scale.set(BRAIN_SCALE, BRAIN_SCALE, BRAIN_SCALE);
+        group.position.set(BRAIN_OFFSET.x, BRAIN_OFFSET.y, BRAIN_OFFSET.z);
+
+        group.visible = this._brainVisible;
+        this._brainGroup = group;
+        this.graph.scene().add(group);
+
+        // Debug pockets disabled — enable by uncommenting
+        // this._debugPockets = [];
+        // const pocketColors = { universal: 0x4aff7f, self: 0xff4a9e, other: 0x4a9eff };
+        // for (const [type, centers] of Object.entries(RegionGeometry.regions)) {
+        //   const radius = RegionGeometry.shellRadii[type][0];
+        //   for (const c of centers) {
+        //     const geo = new THREE.SphereGeometry(radius, 12, 8);
+        //     const mat = new THREE.MeshBasicMaterial({ color: pocketColors[type], wireframe: true, transparent: true, opacity: 0.15, depthWrite: false });
+        //     const mesh = new THREE.Mesh(geo, mat);
+        //     mesh.position.set(c.x, c.y, c.z);
+        //     this.graph.scene().add(mesh);
+        //     this._debugPockets.push(mesh);
+        //   }
+        // }
+      })
+      .catch(err => console.warn('[brain] Failed to load brain.obj:', err));
+  }
+
+  toggleBrain() {
+    this._brainVisible = !this._brainVisible;
+    if (this._brainGroup) {
+      this._brainGroup.visible = this._brainVisible;
+    }
+    return this._brainVisible;
+  }
+
+  // ---- PF sentinel pulse methods ----
+  // Each bumps a scale factor toward 1.0; decay in _animate() shrinks back.
+  // Rapid events stack (multiple calls before decay finishes = bigger pulse).
+  // _fireSentinel() handles both the pulse AND the causal tracer from the previous sentinel.
+
+  _fireSentinel(name, mesh) {
+    if (!mesh) return;
+    const now = Date.now();
+    const CAUSAL_WINDOW = 4000; // ms — max gap to draw a tracer
+
+    // Fire tracer from previous sentinel if within causal window
+    if (this._lastSentinelName && this._lastSentinelName !== name &&
+        (now - this._lastSentinelTime) < CAUSAL_WINDOW && this._brainGroup) {
+      const prevMesh = this._getSentinelByName(this._lastSentinelName);
+      if (prevMesh) {
+        this._spawnTracer(prevMesh, mesh);
+      }
+    }
+
+    this._lastSentinelName = name;
+    this._lastSentinelTime = now;
+  }
+
+  _getSentinelByName(name) {
+    const map = {
+      'nerve-left': this._nerveLeft, 'nerve-right': this._nerveRight,
+      'vital': this._vitalDot, 'social-created': this._socialCreated,
+      'social-expired': this._socialExpired, 'recall': this._recallDot,
+      'formation': this._formationDot, 'circadian': this._circadianDot,
+    };
+    return map[name] || null;
+  }
+
+  _spawnTracer(fromMesh, toMesh) {
+    if (!this._brainGroup || !this.graph) return;
+
+    // Get world positions of the sentinel meshes
+    const startPos = new THREE.Vector3();
+    const endPos = new THREE.Vector3();
+    fromMesh.getWorldPosition(startPos);
+    toMesh.getWorldPosition(endPos);
+
+    // Trail line — starts as a single point, grows as the dot moves
+    const trailMat = new THREE.LineBasicMaterial({
+      color: 0xff8c00, transparent: true, opacity: 0.8,
+    });
+    const trailGeom = new THREE.BufferGeometry();
+    // Pre-allocate positions for 20 trail segments
+    const positions = new Float32Array(20 * 3);
+    trailGeom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    trailGeom.setDrawRange(0, 0);
+    const line = new THREE.Line(trailGeom, trailMat);
+
+    // Traveling dot
+    const dotMat = new THREE.MeshBasicMaterial({
+      color: 0xffcc00, transparent: true, opacity: 1.0,
+    });
+    const dot = new THREE.Mesh(new THREE.SphereGeometry(1.2, 8, 6), dotMat);
+    dot.position.copy(startPos);
+
+    this.graph.scene().add(line);
+    this.graph.scene().add(dot);
+
+    this._tracers.push({
+      line, dot, trailMat, trailGeom, dotMat,
+      startPos, endPos,
+      progress: 0,    // 0→1: dot traveling. >1: dot arrived, trail fading
+      fadeOut: 0,      // 0→1: trail fade after arrival
+    });
+  }
+
+  pulseEyes() {
+    this._nerveScale = Math.min(1.0, this._nerveScale + 0.35);
+    this._fireSentinel('nerve-left', this._nerveLeft);
+  }
+
+  pulseVital() {
+    this._vitalScale = Math.min(1.0, this._vitalScale + 0.5);
+    this._fireSentinel('vital', this._vitalDot);
+  }
+
+  pulseSocialCreated() {
+    this._socialCreatedScale = Math.min(1.0, this._socialCreatedScale + 0.4);
+    this._fireSentinel('social-created', this._socialCreated);
+  }
+
+  pulseSocialExpired() {
+    this._socialExpiredScale = Math.min(1.0, this._socialExpiredScale + 0.4);
+    this._fireSentinel('social-expired', this._socialExpired);
+  }
+
+  pulseRecall() {
+    this._recallScale = Math.min(1.0, this._recallScale + 0.25);
+    this._fireSentinel('recall', this._recallDot);
+  }
+
+  pulseFormation() {
+    this._formationScale = Math.min(1.0, this._formationScale + 0.3);
+    this._fireSentinel('formation', this._formationDot);
+  }
+
+  pulseCircadian() {
+    this._circadianScale = Math.min(1.0, this._circadianScale + 0.5);
+    this._fireSentinel('circadian', this._circadianDot);
   }
 
   _tuneForces() {
@@ -351,16 +781,17 @@ class MemoryGraph {
     const nLinks = data.links.length;
     const density = nNodes > 0 ? nLinks / nNodes : 0;
 
-    // Charge: base -80, ramp up for dense graphs
-    const chargeStrength = -80 - (density * 8);
+    // Charge: gentle repulsion so nodes don't overlap, but weak enough that
+    // homing force can hold them in their region pockets
+    const chargeStrength = -8 - (density * 2);
     const charge = this.graph.d3Force('charge');
     if (charge) {
       charge.strength(chargeStrength);
-      charge.distanceMax(400);
+      charge.distanceMax(25);  // only repel immediate neighbors
     }
 
-    // Link distance: stretch links apart in dense graphs
-    const linkDist = 40 + (density * 3);
+    // Link distance: short to keep connected nodes close
+    const linkDist = 5 + (density * 1.5);
     const link = this.graph.d3Force('link');
     if (link) {
       link.distance(linkDist);
@@ -482,6 +913,88 @@ class MemoryGraph {
       }
     }
 
+    // PF sentinel dot decay — shrink all dots back toward resting size
+    const SENTINEL_REST = 0.06;
+    const SENTINEL_MAX = 0.28;
+    const DECAY_RATE = 0.008; // per frame, ~0.48/s at 60fps — full decay in ~2s
+
+    const decaySentinel = (mesh, scale) => {
+      if (!mesh) return scale;
+      if (scale > 0) scale = Math.max(0, scale - DECAY_RATE);
+      const radius = SENTINEL_REST + (SENTINEL_MAX - SENTINEL_REST) * scale;
+      mesh.scale.setScalar(radius);
+      mesh.material.opacity = 0.5 + 0.5 * scale;
+      return scale;
+    };
+
+    // Eyes (paired)
+    this._nerveScale = decaySentinel(this._nerveLeft, this._nerveScale);
+    decaySentinel(this._nerveRight, this._nerveScale);
+    // Vital
+    this._vitalScale = decaySentinel(this._vitalDot, this._vitalScale);
+    // Social
+    this._socialCreatedScale = decaySentinel(this._socialCreated, this._socialCreatedScale);
+    this._socialExpiredScale = decaySentinel(this._socialExpired, this._socialExpiredScale);
+    // Recall & Formation
+    this._recallScale = decaySentinel(this._recallDot, this._recallScale);
+    this._formationScale = decaySentinel(this._formationDot, this._formationScale);
+    // Circadian
+    this._circadianScale = decaySentinel(this._circadianDot, this._circadianScale);
+
+    // Causal tracers — animate comet trails between sentinels
+    const TRACER_SPEED = 0.025;   // progress per frame (~1.5s travel at 60fps)
+    const TRAIL_FADE_SPEED = 0.02; // fade per frame after arrival (~0.8s fade)
+    const TRAIL_SEGMENTS = 20;
+
+    for (let i = this._tracers.length - 1; i >= 0; i--) {
+      const t = this._tracers[i];
+
+      if (t.progress <= 1.0) {
+        // Dot is traveling
+        t.progress = Math.min(1.0, t.progress + TRACER_SPEED);
+
+        // Move dot along the path
+        t.dot.position.lerpVectors(t.startPos, t.endPos, t.progress);
+
+        // Update trail: draw segments from start to current dot position
+        const posAttr = t.trailGeom.getAttribute('position');
+        const segCount = Math.min(TRAIL_SEGMENTS, Math.ceil(t.progress * TRAIL_SEGMENTS));
+        for (let s = 0; s <= segCount; s++) {
+          const frac = segCount > 0 ? (s / segCount) * t.progress : 0;
+          const px = t.startPos.x + (t.endPos.x - t.startPos.x) * frac;
+          const py = t.startPos.y + (t.endPos.y - t.startPos.y) * frac;
+          const pz = t.startPos.z + (t.endPos.z - t.startPos.z) * frac;
+          posAttr.setXYZ(s, px, py, pz);
+        }
+        posAttr.needsUpdate = true;
+        t.trailGeom.setDrawRange(0, segCount + 1);
+
+        // Dot pulses brighter as it travels
+        t.dotMat.opacity = 0.7 + 0.3 * Math.sin(t.progress * Math.PI);
+
+        if (t.progress >= 1.0) {
+          // Dot arrived — start fading
+          t.fadeOut = 0.01;
+        }
+      } else {
+        // Trail fading out, dot shrinking
+        t.fadeOut = Math.min(1.0, t.fadeOut + TRAIL_FADE_SPEED);
+        t.trailMat.opacity = 0.8 * (1 - t.fadeOut);
+        t.dotMat.opacity = 1.0 * (1 - t.fadeOut);
+        t.dot.scale.setScalar(1 - t.fadeOut * 0.8);
+
+        if (t.fadeOut >= 1.0) {
+          // Cleanup
+          this.graph.scene().remove(t.line);
+          this.graph.scene().remove(t.dot);
+          t.trailGeom.dispose();
+          t.trailMat.dispose();
+          t.dotMat.dispose();
+          this._tracers.splice(i, 1);
+        }
+      }
+    }
+
     // Manual camera orbit (ForceGraph3D kills its loop after cooldown)
     if (this._autoRotate) {
       const cam = this.graph.camera();
@@ -555,7 +1068,7 @@ class MemoryGraph {
       node.fz = nodeData.fz;
     } else {
       // Seed position in brain region (layered by consolidation level)
-      const pos = RegionGeometry.seedPosition(nodeData.scope, nodeData.consolidation_level || 0, nodeData.salience);
+      const pos = RegionGeometry.seedPosition(nodeData.scope, nodeData.consolidation_level || 0, nodeData.salience, nodeData.node_id);
       node.x = pos.x;
       node.y = pos.y;
       node.z = pos.z;

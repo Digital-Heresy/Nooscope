@@ -141,6 +141,34 @@ class InfoPanel {
     `;
   }
 
+  showSentinel(sentinel) {
+    this.currentNodeId = null; // not a graph node
+    const evtList = sentinel.events.map(e => `<span class="log-type-${e}">${e}</span>`).join(', ');
+    this.content.innerHTML = `
+      <div class="field">
+        <div class="field-label">Sentinel Node</div>
+        <div class="field-value highlight" style="color: #ff8c00">${sentinel.label}</div>
+      </div>
+      <div class="field">
+        <div class="field-label">Category</div>
+        <div class="field-value">${sentinel.category}</div>
+      </div>
+      <div class="field">
+        <div class="field-label">Brain Region</div>
+        <div class="field-value">${sentinel.region}</div>
+      </div>
+      <div class="field">
+        <div class="field-label">Events</div>
+        <div class="field-value">${evtList}</div>
+      </div>
+      <div class="field">
+        <div class="field-label">Description</div>
+        <div class="field-value" style="color: var(--text-dim)">${sentinel.description}</div>
+      </div>
+    `;
+    this.panel.classList.remove('hidden');
+  }
+
   hide() {
     this.panel.classList.add('hidden');
     this.currentNodeId = null;

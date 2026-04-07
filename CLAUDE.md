@@ -41,6 +41,32 @@ From PersonaForge: `recall_fired`, `memory_formed`, `session_created`, `session_
 - **Edge color by origin**: `co_activation` → orange, `explicit` → white, `semantic_clustering` → purple
 - **Edge width**: `weight * 2.5`, minimum 0.2
 
+## Two rendering strategies
+
+The 3D brain has two fundamentally different rendering approaches depending on the data source:
+
+### Engram events → ornaments on a tree
+
+Each Engram node is a real, distinct memory. Nodes are distributed evenly throughout their scope's brain lobe (like ornaments on a Christmas tree — spread out so they don't clump). `RegionGeometry.seedPosition()` handles spherical shell placement by scope, consolidation depth, and salience. Edges form organically wherever Hebbian co-activation creates them — we don't control the wiring, just let it happen.
+
+### PersonaForge events → fixed sentinel dots at anatomical landmarks
+
+PF events don't represent individual memories — they represent *capability channels*. Each reflex category gets fixed dot(s) at a strategic brain location that pulse reactively when events fire. The pattern:
+1. Place a small solid sphere at the anatomical landmark (e.g., eye centers for input signals)
+2. On event fire, bump a scale factor toward 1.0 (stacking — rapid events keep inflating)
+3. Animate decay back to resting size over ~2s
+4. Cap max size to the containing wireframe geometry
+
+| PF Category | Landmark | Brain Region |
+|---|---|---|
+| Recall | TBD | Temporal Lobe |
+| Formation | TBD | Temporal Lobe |
+| Social | TBD | Frontal Lobe |
+| Agency | TBD | Cerebellum |
+| Circadian | TBD | Thalamus |
+| Vital | TBD | Brainstem |
+| Input (message_received) | Eye nerve dots | Eyes (front fixtures) |
+
 ## Important patterns
 
 - d3-force mutates link `source`/`target` from string IDs to object references after simulation starts. All edge lookup code must handle both forms (see `addEdge`, `updateEdge`).
