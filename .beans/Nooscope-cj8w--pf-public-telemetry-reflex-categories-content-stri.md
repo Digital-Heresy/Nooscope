@@ -1,7 +1,7 @@
 ---
 # Nooscope-cj8w
 title: 'Telemetry Brain Region Mapping: PF Reflex Categories & Engram Events'
-status: todo
+status: done
 type: feature
 created_at: 2026-04-06T01:53:28Z
 updated_at: 2026-04-06T01:53:28Z

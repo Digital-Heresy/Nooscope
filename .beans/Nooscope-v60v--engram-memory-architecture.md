@@ -1,7 +1,7 @@
 ---
 # Nooscope-v60v
 title: 'Engram Memory Architecture: Structural Brain Layout'
-status: in-progress
+status: done
 type: epic
 priority: normal
 created_at: 2026-04-05T00:00:00Z
