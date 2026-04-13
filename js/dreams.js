@@ -49,7 +49,8 @@ document.addEventListener('DOMContentLoaded', () => {
   for (const [name, cfg] of Object.entries(SCION_PRESETS)) {
     const opt = document.createElement('option');
     opt.value = name;
-    opt.textContent = `${name.charAt(0).toUpperCase() + name.slice(1)} (${cfg.pf || cfg.host || '?'})`;
+    const displayName = name.charAt(0).toUpperCase() + name.slice(1);
+    opt.textContent = cfg.pfPrefix ? displayName : `${displayName} (${cfg.pf || cfg.host || '?'})`;
     scionSelect.insertBefore(opt, customOpt);
   }
   scionSelect.value = Object.keys(SCION_PRESETS)[0] || 'custom';
