@@ -271,6 +271,10 @@ class MemoryGraph {
     this._ambientActiveUntil = 0;   // epoch ms — halo lit while now < this
     this._ambientCurrentOpacity = 0;
     this._ambientPhase = 0;
+    // Working memory set — nodes currently "in the scion's head", derived
+    // from the most recent recall_fired event. Gold ring drawn around each.
+    this.workingMemorySet = new Set();
+    this._wmPhase = 0;
     this._sentinelRaycaster = new THREE.Raycaster();
     this._sentinelMouse = new THREE.Vector2();
     this.onSentinelSelect = null; // callback for sentinel clicks
@@ -384,6 +388,19 @@ class MemoryGraph {
         const ring = new THREE.Mesh(ringGeo, ringMat);
         ring.name = 'selectionRing';
         group.add(ring);
+
+        // Working memory ring — gold, outside the selection ring, gently
+        // pulsing opacity while the node is in workingMemorySet.
+        const wmGeo = new THREE.RingGeometry(size + 1.0, size + 1.3, 32);
+        const wmMat = new THREE.MeshBasicMaterial({
+          color: '#ffd700',
+          transparent: true,
+          opacity: 0,
+          side: THREE.DoubleSide,
+        });
+        const wmRing = new THREE.Mesh(wmGeo, wmMat);
+        wmRing.name = 'wmRing';
+        group.add(wmRing);
 
         // Birth glow (visible only for newly created nodes)
         const glowGeo = new THREE.SphereGeometry(size * 3, 16, 12);
@@ -932,6 +949,7 @@ class MemoryGraph {
     }
 
     const now = Date.now();
+    this._wmPhase = (this._wmPhase + 0.035) % (Math.PI * 2);
 
     // Update node visuals for pulses and selection
     for (const [id, node] of this.nodeMap) {
@@ -952,6 +970,17 @@ class MemoryGraph {
       if (ring && ring.material.opacity > 0) {
         ring.rotation.x += 0.02;
         ring.rotation.y += 0.01;
+      }
+
+      // Working memory ring — gentle opacity pulse while member of WM set
+      const wmRing = node._threeObj.getObjectByName('wmRing');
+      if (wmRing) {
+        if (this.workingMemorySet.has(node.id)) {
+          wmRing.material.opacity = 0.55 + 0.25 * Math.sin(this._wmPhase);
+          wmRing.lookAt(this.graph.camera().position);
+        } else {
+          wmRing.material.opacity = 0;
+        }
       }
 
       // Spin pin indicator
@@ -1261,6 +1290,16 @@ class MemoryGraph {
         break;
       }
     }
+  }
+
+  // Replace the working memory set. Each recall_fired event refreshes this;
+  // session_expired clears it. Gold rings appear around members in _animate.
+  setWorkingMemory(nodeIds) {
+    this.workingMemorySet = new Set(nodeIds || []);
+  }
+
+  clearWorkingMemory() {
+    this.workingMemorySet.clear();
   }
 
   // BFS-staggered recall: pulse propagates from the most-connected recalled

@@ -347,6 +347,7 @@ function handleRecallFired(event) {
   const p = event.payload;
   if (p.node_ids && p.node_ids.length > 0) {
     graph.highlightRecall(p.node_ids);
+    graph.setWorkingMemory(p.node_ids);
   }
 }
 
@@ -370,7 +371,10 @@ function handleSessionExpired(event) {
   const el = document.getElementById('session-status');
   el.textContent = `Session ended (${event.payload.message_count || '?'} msgs)`;
   setTimeout(() => el.classList.add('hidden'), 5000);
-  if (graph) graph.killAmbient();
+  if (graph) {
+    graph.killAmbient();
+    graph.clearWorkingMemory();
+  }
 }
 
 // ---- Status updates ----
