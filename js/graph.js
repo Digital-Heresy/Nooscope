@@ -39,11 +39,16 @@ function lerpColor(a, b, t) {
   return `#${((1 << 24) | (r << 16) | (g << 8) | bl).toString(16).slice(1)}`;
 }
 
-// Get edge color based on origin + recency
+// Get edge color based on origin + recency.
+// Recall wavefront overrides with cyan while _recallHighlightUntil is in the future.
 function edgeColor(link) {
+  const now = Date.now();
+  if (link._recallHighlightUntil && link._recallHighlightUntil > now) {
+    return '#00e5ff';
+  }
   const baseHex = ORIGIN_COLORS[link.origin] || '#444444';
   if (!link._lastTouched) return lerpColor(hexToRgb(baseHex), EDGE_COLD_COLOR, 0.7);
-  const age = Date.now() - link._lastTouched;
+  const age = now - link._lastTouched;
   const decay = Math.min(age / EDGE_DECAY_MS, 1); // 0 = just touched, 1 = fully cold
   return lerpColor(hexToRgb(baseHex), EDGE_COLD_COLOR, decay * 0.85);
 }
@@ -674,32 +679,29 @@ class MemoryGraph {
   // Rapid events stack (multiple calls before decay finishes = bigger pulse).
   // _fireSentinel() handles both the pulse AND the causal tracer from the previous sentinel.
 
-  _fireSentinel(name, mesh) {
-    if (!mesh) return;
+  // Fire one logical sentinel event. `meshes` may be a single THREE mesh or
+  // an array (for mirrored sentinels like the eyes — both dots represent one
+  // logical event and should share the causal tracer connections).
+  _fireSentinel(name, meshes) {
+    const meshArr = Array.isArray(meshes) ? meshes.filter(Boolean) : (meshes ? [meshes] : []);
+    if (meshArr.length === 0) return;
     const now = Date.now();
     const CAUSAL_WINDOW = 4000; // ms — max gap to draw a tracer
 
-    // Fire tracer from previous sentinel if within causal window
-    if (this._lastSentinelName && this._lastSentinelName !== name &&
+    // Fire tracers from every previous-sentinel mesh to every new-sentinel
+    // mesh (full cross product), so mirrored pairs both participate.
+    if (this._lastSentinelMeshes && this._lastSentinelName !== name &&
         (now - this._lastSentinelTime) < CAUSAL_WINDOW && this._brainGroup) {
-      const prevMesh = this._getSentinelByName(this._lastSentinelName);
-      if (prevMesh) {
-        this._spawnTracer(prevMesh, mesh);
+      for (const prev of this._lastSentinelMeshes) {
+        for (const next of meshArr) {
+          this._spawnTracer(prev, next);
+        }
       }
     }
 
     this._lastSentinelName = name;
+    this._lastSentinelMeshes = meshArr;
     this._lastSentinelTime = now;
-  }
-
-  _getSentinelByName(name) {
-    const map = {
-      'nerve-left': this._nerveLeft, 'nerve-right': this._nerveRight,
-      'vital': this._vitalDot, 'social-created': this._socialCreated,
-      'social-expired': this._socialExpired, 'recall': this._recallDot,
-      'formation': this._formationDot, 'circadian': this._circadianDot,
-    };
-    return map[name] || null;
   }
 
   _spawnTracer(fromMesh, toMesh) {
@@ -742,7 +744,7 @@ class MemoryGraph {
 
   pulseEyes() {
     this._nerveScale = Math.min(1.0, this._nerveScale + 0.35);
-    this._fireSentinel('nerve-left', this._nerveLeft);
+    this._fireSentinel('nerve', [this._nerveLeft, this._nerveRight]);
   }
 
   pulseVital() {
@@ -1192,26 +1194,101 @@ class MemoryGraph {
     }
   }
 
+  // BFS-staggered recall: pulse propagates from the most-connected recalled
+  // node outward through the subgraph induced by the recall set, one hop per
+  // HOP_MS. Edges light cyan, nodes white-flash in layer order.
   highlightRecall(nodeIds) {
-    for (const id of nodeIds) {
-      this.pulseNode(id);
-    }
-    if (this.graph) {
-      this.graph.linkDirectionalParticles(l => {
-        const srcId = typeof l.source === 'object' ? l.source.id : l.source;
-        const tgtId = typeof l.target === 'object' ? l.target.id : l.target;
-        if (nodeIds.includes(srcId) && nodeIds.includes(tgtId)) return 4;
-        return 0;
-      });
-      this.graph.linkDirectionalParticleColor(() => '#00e5ff');
-      this.graph.linkDirectionalParticleWidth(1.5);
+    if (!this.graph || !nodeIds || nodeIds.length === 0) return;
 
-      setTimeout(() => {
-        if (this.graph) {
-          this.graph.linkDirectionalParticles(0);
-        }
-      }, 3000);
+    const HOP_MS = 200;
+    const EDGE_HIGHLIGHT_MS = 1500;
+
+    const recallSet = new Set(nodeIds);
+    const links = this.graph.graphData().links;
+
+    // Build adjacency limited to the recall subgraph
+    const adj = new Map(); // nodeId -> [{ other, link }]
+    for (const id of nodeIds) adj.set(id, []);
+    for (const l of links) {
+      const src = typeof l.source === 'object' ? l.source.id : l.source;
+      const tgt = typeof l.target === 'object' ? l.target.id : l.target;
+      if (recallSet.has(src) && recallSet.has(tgt)) {
+        adj.get(src).push({ other: tgt, link: l });
+        adj.get(tgt).push({ other: src, link: l });
+      }
     }
+
+    // Root = most-connected node in the recall subgraph (ties → first)
+    let root = nodeIds[0];
+    let rootDeg = adj.get(root).length;
+    for (const id of nodeIds) {
+      const d = adj.get(id).length;
+      if (d > rootDeg) { root = id; rootDeg = d; }
+    }
+
+    // BFS — nodeLayers[k] = nodes first reached at hop k;
+    // edgeLayers[k] = edges traversed to reach layer k (empty for layer 0)
+    const nodeLayers = [[root]];
+    const edgeLayers = [[]];
+    const visited = new Set([root]);
+    let frontier = [root];
+    while (frontier.length > 0) {
+      const nextNodes = [];
+      const nextEdges = [];
+      for (const n of frontier) {
+        for (const { other, link } of adj.get(n)) {
+          if (!visited.has(other)) {
+            visited.add(other);
+            nextNodes.push(other);
+            nextEdges.push(link);
+          }
+        }
+      }
+      if (nextNodes.length === 0) break;
+      nodeLayers.push(nextNodes);
+      edgeLayers.push(nextEdges);
+      frontier = nextNodes;
+    }
+
+    // Any recalled nodes unreachable from root (disconnected subgraph)
+    // still get pulsed in a final synthetic layer so nothing is dropped.
+    const orphans = nodeIds.filter(id => !visited.has(id));
+    if (orphans.length > 0) {
+      nodeLayers.push(orphans);
+      edgeLayers.push([]);
+    }
+
+    // Install a single particle accessor that reads per-link timestamps.
+    // Re-invoking the setter on each hop forces 3d-force-graph to re-eval.
+    const particleAccessor = (l) =>
+      (l._recallHighlightUntil && l._recallHighlightUntil > Date.now()) ? 4 : 0;
+    this.graph.linkDirectionalParticleColor(() => '#00e5ff');
+    this.graph.linkDirectionalParticleWidth(1.5);
+    this.graph.linkDirectionalParticles(particleAccessor);
+
+    // Fire each layer on its stagger
+    nodeLayers.forEach((nodes, layerIdx) => {
+      setTimeout(() => {
+        for (const id of nodes) this.pulseNode(id);
+        const now = Date.now();
+        for (const link of edgeLayers[layerIdx]) {
+          link._recallHighlightUntil = now + EDGE_HIGHLIGHT_MS;
+        }
+        // Force re-evaluation of particle and color accessors
+        if (this.graph) {
+          this.graph.linkDirectionalParticles(particleAccessor);
+          this.graph.linkColor(l => edgeColor(l));
+        }
+      }, layerIdx * HOP_MS);
+    });
+
+    // Clean up: clear particles once the final layer's highlight window lapses
+    const totalMs = (nodeLayers.length - 1) * HOP_MS + EDGE_HIGHLIGHT_MS + 100;
+    setTimeout(() => {
+      if (!this.graph) return;
+      this.graph.linkDirectionalParticles(0);
+      this.graph.linkColor(l => edgeColor(l));
+    }, totalMs);
   }
 
   // ---- Favorites (session-only) ----
