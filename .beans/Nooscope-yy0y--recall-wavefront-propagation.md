@@ -1,7 +1,7 @@
 ---
 # Nooscope-yy0y
 title: 'Recall Wavefront Propagation'
-status: todo
+status: done
 type: feature
 priority: high
 created_at: 2026-04-05T00:00:00Z

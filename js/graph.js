@@ -243,6 +243,14 @@ class MemoryGraph {
     this._formationScale = 0;
     this._circadianDot = null;   // Thalamus — dream events
     this._circadianScale = 0;
+    // Ambient session halo — brain-shaped additive glow (one mesh per
+    // hemisphere, built from the brain OBJ geometry) lit while the scion
+    // is cognitively active. Driven by an "active until" timestamp that
+    // any PF event extends; session_expired hard-kills it.
+    this._ambientHaloMeshes = [];
+    this._ambientActiveUntil = 0;   // epoch ms — halo lit while now < this
+    this._ambientCurrentOpacity = 0;
+    this._ambientPhase = 0;
     this._sentinelRaycaster = new THREE.Raycaster();
     this._sentinelMouse = new THREE.Vector2();
     this.onSentinelSelect = null; // callback for sentinel clicks
@@ -537,6 +545,7 @@ class MemoryGraph {
         // That's roughly [-67, 67] which maps well to [-80, 60] with a small z-offset
         const BRAIN_OFFSET = { x: 0, y: 5, z: -10 };
 
+        this._ambientHaloMeshes = [];
         for (const obj of objects) {
           const isRightHemi = obj.name.includes('rh');
           const material = new THREE.MeshBasicMaterial({
@@ -548,6 +557,23 @@ class MemoryGraph {
           });
           const mesh = new THREE.Mesh(obj.geometry, material);
           group.add(mesh);
+
+          // Ambient halo — share the exact brain geometry, solid additive
+          // glow on the inside of a slightly inflated copy so the aura
+          // traces the brain's actual silhouette. Dim off-white so additive
+          // blending stays gentle over any background color.
+          const haloMat = new THREE.MeshBasicMaterial({
+            color: 0x666666,
+            transparent: true,
+            opacity: 0,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            side: THREE.BackSide,
+          });
+          const halo = new THREE.Mesh(obj.geometry, haloMat);
+          halo.scale.set(1.05, 1.05, 1.05);
+          group.add(halo);
+          this._ambientHaloMeshes.push(halo);
         }
 
         // Eye fixtures (local coordinates — group.scale handles the rest)
@@ -747,6 +773,17 @@ class MemoryGraph {
     this._fireSentinel('nerve', [this._nerveLeft, this._nerveRight]);
   }
 
+  // Bump the "brain is awake" window. Any PF cognitive event calls this;
+  // the halo stays lit until 90s after the last event.
+  bumpAmbient() {
+    this._ambientActiveUntil = Date.now() + 90000;
+  }
+
+  // Hard-kill the halo (session_expired → fade out immediately).
+  killAmbient() {
+    this._ambientActiveUntil = 0;
+  }
+
   pulseVital() {
     this._vitalScale = Math.min(1.0, this._vitalScale + 0.5);
     this._fireSentinel('vital', this._vitalDot);
@@ -942,6 +979,18 @@ class MemoryGraph {
     this._formationScale = decaySentinel(this._formationDot, this._formationScale);
     // Circadian
     this._circadianScale = decaySentinel(this._circadianDot, this._circadianScale);
+
+    // Ambient session halo — target opacity from "active until" timestamp,
+    // eased, modulated with a slow breathing pulse when active.
+    if (this._ambientHaloMeshes.length > 0) {
+      const EASE = 0.04;
+      const target = (now < this._ambientActiveUntil) ? 0.12 : 0;
+      this._ambientCurrentOpacity += (target - this._ambientCurrentOpacity) * EASE;
+      this._ambientPhase = (this._ambientPhase + 0.012) % (Math.PI * 2);
+      const breathe = 0.75 + 0.25 * Math.sin(this._ambientPhase); // 0.5..1.0
+      const opacity = this._ambientCurrentOpacity * breathe;
+      for (const m of this._ambientHaloMeshes) m.material.opacity = opacity;
+    }
 
     // Causal tracers — animate comet trails between sentinels
     const TRACER_SPEED = 0.025;   // progress per frame (~1.5s travel at 60fps)

@@ -246,6 +246,11 @@ function handleEvent(source, event) {
     eventLog.add(event, source);
   }
 
+  // Any PF cognitive activity keeps the ambient halo lit.
+  if (source === 'pf' && graph) {
+    graph.bumpAmbient();
+  }
+
   switch (type) {
     case 'snapshot':
       handleSnapshot(event);
@@ -365,6 +370,7 @@ function handleSessionExpired(event) {
   const el = document.getElementById('session-status');
   el.textContent = `Session ended (${event.payload.message_count || '?'} msgs)`;
   setTimeout(() => el.classList.add('hidden'), 5000);
+  if (graph) graph.killAmbient();
 }
 
 // ---- Status updates ----
