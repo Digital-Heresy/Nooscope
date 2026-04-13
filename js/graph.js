@@ -98,15 +98,21 @@ const RegionGeometry = {
     other:     [10, 6, 3],
   },
 
-  // Round-robin counters per scope type
+  // Round-robin counters per scope type — used for self/universal where
+  // we spread multiple nodes from a single scope across that type's pockets.
   _counters: { universal: 0, self: 0, other: 0 },
 
-  // Node-to-region assignment (nodeId → region index) for stable homing
-  _nodeRegions: new Map(),
+  // Stable assignments. For self/universal we key by nodeId (spread nodes
+  // across pockets); for other/intimate we key by full scope string so
+  // every node from the same identity lands in the same pocket, forming
+  // a visible per-person lobe.
+  _nodeRegions: new Map(),     // nodeId → { type, idx }
+  _identityRegions: new Map(), // full scope string → idx (other pockets only)
 
   reset() {
     this._counters = { universal: 0, self: 0, other: 0 };
     this._nodeRegions.clear();
+    this._identityRegions.clear();
   },
 
   // Resolve scope to region type key
@@ -116,13 +122,27 @@ const RegionGeometry = {
     return 'other';  // other:*, intimate:*
   },
 
-  // Assign a node to its next round-robin region, or return existing assignment
   _assignRegion(nodeId, scope) {
     if (this._nodeRegions.has(nodeId)) return this._nodeRegions.get(nodeId);
     const type = this._scopeType(scope);
     const regions = this.regions[type];
-    const idx = this._counters[type] % regions.length;
-    this._counters[type]++;
+
+    let idx;
+    if (type === 'other') {
+      // Per-identity pocket — all nodes from the same scope share it.
+      if (this._identityRegions.has(scope)) {
+        idx = this._identityRegions.get(scope);
+      } else {
+        idx = this._counters.other % regions.length;
+        this._counters.other++;
+        this._identityRegions.set(scope, idx);
+      }
+    } else {
+      // Per-node spread across this type's pockets.
+      idx = this._counters[type] % regions.length;
+      this._counters[type]++;
+    }
+
     const assignment = { type, idx };
     this._nodeRegions.set(nodeId, assignment);
     return assignment;
