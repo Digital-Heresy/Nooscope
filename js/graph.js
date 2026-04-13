@@ -866,11 +866,30 @@ class MemoryGraph {
       charge.distanceMax(25);  // only repel immediate neighbors
     }
 
-    // Link distance: short to keep connected nodes close
-    const linkDist = 5 + (density * 1.5);
+    // Per-origin link forces:
+    //   semantic_clustering → short & strong (tight concept clusters)
+    //   explicit            → medium (scaffolding relationships)
+    //   co_activation       → long & weak (loose associative bridges)
+    // Density multiplier applies on top so dense graphs stretch out.
+    const baseDist = 5 + (density * 1.5);
     const link = this.graph.d3Force('link');
     if (link) {
-      link.distance(linkDist);
+      link.distance(l => {
+        switch (l.origin) {
+          case 'semantic_clustering': return baseDist * 0.5;
+          case 'co_activation':       return baseDist * 1.5;
+          case 'explicit':            return baseDist * 1.0;
+          default:                    return baseDist;
+        }
+      });
+      link.strength(l => {
+        switch (l.origin) {
+          case 'semantic_clustering': return 1.0;
+          case 'explicit':            return 0.6;
+          case 'co_activation':       return 0.3;
+          default:                    return 0.5;
+        }
+      });
     }
   }
 

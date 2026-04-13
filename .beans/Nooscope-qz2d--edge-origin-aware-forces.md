@@ -1,7 +1,7 @@
 ---
 # Nooscope-qz2d
 title: 'Edge-Origin-Aware Forces'
-status: todo
+status: done
 type: feature
 priority: normal
 created_at: 2026-04-05T00:00:00Z
