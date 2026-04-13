@@ -365,14 +365,17 @@ class MemoryGraph {
       .nodeThreeObject(node => {
         const group = new THREE.Group();
 
-        // Main sphere
+        // Main sphere — salience drives opacity and emissive glow.
         const size = self._currentNodeSize(node);
         const color = self._currentNodeColor(node);
+        const salience = node.salience || 0;
         const geometry = new THREE.SphereGeometry(size, 16, 12);
         const material = new THREE.MeshLambertMaterial({
           color: color,
           transparent: true,
-          opacity: 0.9,
+          opacity: 0.4 + salience * 0.55,
+          emissive: new THREE.Color(scopeColor(node.scope)),
+          emissiveIntensity: salience * 0.6,
         });
         const sphere = new THREE.Mesh(geometry, material);
         group.add(sphere);
@@ -983,6 +986,12 @@ class MemoryGraph {
       const baseScale = size / node._baseSize;
       sphere.scale.set(baseScale, baseScale, baseScale);
       sphere.material.color.set(color);
+
+      // Salience encoding — opacity and emissive glow. Pulse override on
+      // color is already applied above; opacity/emissive are orthogonal.
+      const salience = node.salience || 0;
+      sphere.material.opacity = 0.4 + salience * 0.55;
+      sphere.material.emissiveIntensity = salience * 0.6;
 
       // Rotate selection ring to face camera
       const ring = node._threeObj.getObjectByName('selectionRing');
