@@ -1,4 +1,6 @@
-FROM nginx:alpine
+FROM nginxinc/nginx-unprivileged:alpine
+
+USER root
 
 # Copy static files
 COPY index.html dreams.html /usr/share/nginx/html/
@@ -12,9 +14,12 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 # Entrypoint generates config.js from env vars before nginx starts
 COPY docker-entrypoint.sh /docker-entrypoint.sh
-RUN chmod +x /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh \
+    && chown -R nginx:nginx /usr/share/nginx/html
 
-EXPOSE 80
+USER nginx
+
+EXPOSE 8080
 
 ENTRYPOINT ["/docker-entrypoint.sh"]
 CMD ["nginx", "-g", "daemon off;"]
