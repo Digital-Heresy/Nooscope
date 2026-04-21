@@ -20,6 +20,7 @@ const DreamState = {
   renderPollStart: 0,
   isConnected: false,
   credits: null,        // { credits, cost_per_credit_usd }
+  panelUrls: new Set(), // blob URLs for rendered panels — revoked on re-render
 };
 
 function tokenKey() {
@@ -124,6 +125,7 @@ function disconnectAll() {
   DreamState.selectedDream = null;
   DreamState.credits = null;
   DreamState.dreamCache.clear();
+  revokeAllPanelUrls();
   stopRenderPoll();
   setPfStatus('disconnected');
   setConnectedState(false);
@@ -257,6 +259,26 @@ async function apiJson(path, options = {}) {
   return resp.json();
 }
 
+async function loadPanelImage(imgElement, dreamId, index) {
+  // Panel endpoint is auth-gated, so <img src> can't hit it directly.
+  // Fetch with the Bearer header, turn the response into an object URL.
+  try {
+    const resp = await apiRequest(`/morpheus/dreams/${dreamId}/panels/${index}`);
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    DreamState.panelUrls.add(url);
+    imgElement.src = url;
+  } catch (err) {
+    console.warn(`[dreams] failed to load panel ${index}:`, err);
+    imgElement.alt = `Panel ${index + 1} failed to load`;
+  }
+}
+
+function revokeAllPanelUrls() {
+  for (const url of DreamState.panelUrls) URL.revokeObjectURL(url);
+  DreamState.panelUrls.clear();
+}
+
 
 
 // ---- Status ----
@@ -371,7 +393,7 @@ function cacheDream(dreamId, dream) {
   const renderedPanels = dream.rendered_panels || [];
   const fullyRendered = panels.length > 0 && panels.every((p, i) => {
     const rp = renderedPanels.find(r => r.index === i) || renderedPanels[i];
-    return rp && rp.image_b64 && !rp.error;
+    return rp && rp.image_path && !rp.error;
   });
   DreamState.dreamCache.set(dreamId, { dream, fullyRendered });
 }
@@ -430,6 +452,9 @@ function renderDreamDetail() {
   const dream = DreamState.selectedDream;
   if (!dream) return;
 
+  // Previous object URLs are about to be orphaned as the strip is rebuilt.
+  revokeAllPanelUrls();
+
   // Hide empty state, show sections
   document.getElementById('detail-empty').classList.add('hidden');
 
@@ -443,7 +468,7 @@ function renderDreamDetail() {
   const renderedPanels = dream.rendered_panels || [];
   const allRendered = panels.length > 0 && panels.every((p, i) => {
     const rp = renderedPanels.find(r => r.index === i) || renderedPanels[i];
-    return rp && rp.image_b64 && !rp.error;
+    return rp && rp.image_path && !rp.error;
   });
   const clusters = dream.clusters_received || dream.clusters_triaged;
   const mutations = dream.mutations_count || dream.mutations;
@@ -511,8 +536,8 @@ function renderDreamDetail() {
       const entryType = panel.entry_type || 'cluster';
       // Match storyboard panel with rendered panel by index
       const rp = renderedPanels.find(r => r.index === i) || renderedPanels[i];
-      const isRendered = rp && rp.image_b64 && !rp.error;
-      const isMissingImage = rp && !rp.image_b64 && !rp.error && rp.cost_credits;
+      const isRendered = rp && rp.image_path && !rp.error;
+      const isMissingImage = rp && !rp.image_path && !rp.error && rp.cost_credits;
       const panelCost = rp?.cost_credits;
       const wasFiltered = rp?.was_filtered;
       const panelError = rp?.error;
@@ -534,11 +559,16 @@ function renderDreamDetail() {
         </div>
         <div class="panel-visual">
           ${isRendered
-            ? `<img class="panel-image" src="data:image/png;base64,${rp.image_b64}" alt="Panel ${i + 1}">`
+            ? `<img class="panel-image" alt="Panel ${i + 1}">`
             : `<div class="panel-placeholder">${panel.panel_prompt ? escapeHtml(panel.panel_prompt.substring(0, 200)) + '...' : 'No prompt'}</div>`
           }
         </div>
       `;
+
+      if (isRendered) {
+        const img = panelEl.querySelector('img.panel-image');
+        if (img) loadPanelImage(img, dream.dream_id, i);
+      }
 
       strip.appendChild(panelEl);
     });
