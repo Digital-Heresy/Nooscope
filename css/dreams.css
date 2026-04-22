@@ -178,6 +178,61 @@
   border: 1px solid var(--dream-accent);
 }
 
+.publish-btn {
+  background: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--text-secondary);
+  font-size: 12px;
+  padding: 6px 14px;
+  margin-left: 6px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.publish-btn:hover:not(:disabled) {
+  background: var(--bg-input);
+  border-color: var(--dream-accent);
+}
+
+.publish-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+#toast-container {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 9999;
+  pointer-events: none;
+}
+
+.toast {
+  background: var(--bg-input, #1a1a1a);
+  color: var(--text-primary, #eee);
+  padding: 10px 16px;
+  border-radius: 4px;
+  border-left: 3px solid var(--text-secondary, #888);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+  font-size: 13px;
+  max-width: 400px;
+  opacity: 0;
+  transform: translateX(20px);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  pointer-events: auto;
+}
+
+.toast.visible {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.toast-success { border-left-color: #4caf50; }
+.toast-error { border-left-color: #e57373; }
+
 /* Render progress */
 .render-progress {
   height: 3px;
