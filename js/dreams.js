@@ -21,7 +21,13 @@ const DreamState = {
   isConnected: false,
   credits: null,        // { credits, cost_per_credit_usd }
   panelUrls: new Set(), // blob URLs for rendered panels — revoked on re-render
+  dreamChannels: null,  // { discord?: {guild_name, channel_name, ...}, telegram?: {chat_title, ...} }
 };
+
+const PUBLISH_PLATFORMS = [
+  { id: 'discord',  nameField: 'channel_name', labelPrefix: '#', tipField: 'guild_name' },
+  { id: 'telegram', nameField: 'chat_title',   labelPrefix: '',  tipField: 'chat_type' },
+];
 
 function tokenKey() {
   return TOKEN_PREFIX + (DreamState.scionName || 'default');
@@ -115,6 +121,7 @@ function connectToScion(scionConfig, scionName) {
   setConnectedState(true);
   fetchDreamList();
   fetchCredits();
+  fetchDreamChannels();
 }
 
 function disconnectAll() {
@@ -124,6 +131,7 @@ function disconnectAll() {
   DreamState.selectedDreamId = null;
   DreamState.selectedDream = null;
   DreamState.credits = null;
+  DreamState.dreamChannels = null;
   DreamState.dreamCache.clear();
   revokeAllPanelUrls();
   stopRenderPoll();
@@ -327,6 +335,46 @@ function formatCost(credits) {
   return `${rounded} cr`;
 }
 
+// ---- Dream channels (configured publish destinations) ----
+
+async function fetchDreamChannels() {
+  try {
+    const data = await apiJson('/morpheus/dream_channels');
+    const next = data || {};
+    const changed = JSON.stringify(DreamState.dreamChannels) !== JSON.stringify(next);
+    DreamState.dreamChannels = next;
+    if (changed && DreamState.selectedDream) renderDreamDetail();
+  } catch (err) {
+    // Endpoint is optional on older PF builds — silent-ignore 404.
+    if (!err.message?.includes('404')) {
+      console.warn('[dreams] dream_channels fetch failed:', err);
+    }
+    DreamState.dreamChannels = {};
+  }
+}
+
+// ---- Toast ----
+
+function showToast(message, opts = {}) {
+  const kind = opts.kind || 'info';
+  let container = document.getElementById('toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toast-container';
+    document.body.appendChild(container);
+  }
+  const t = document.createElement('div');
+  t.className = `toast toast-${kind}`;
+  t.textContent = message;
+  container.appendChild(t);
+  // rAF ensures the CSS transition catches the `visible` class change.
+  requestAnimationFrame(() => t.classList.add('visible'));
+  setTimeout(() => {
+    t.classList.remove('visible');
+    setTimeout(() => t.remove(), 300);
+  }, opts.durationMs || 4000);
+}
+
 // ---- Dream list ----
 
 async function fetchDreamList() {
@@ -496,6 +544,7 @@ function renderDreamDetail() {
           ? `<button class="render-btn" id="render-btn">Render Storyboard</button>`
           : `<button class="render-btn rerender" id="rerender-btn">Re-render</button>`
         }
+        ${allRendered ? publishButtonsHtml() : ''}
         <div class="render-progress hidden" id="render-progress">
           <div class="render-progress-bar" id="render-progress-bar"></div>
         </div>
@@ -511,6 +560,10 @@ function renderDreamDetail() {
   const rerenderBtn = document.getElementById('rerender-btn');
   if (rerenderBtn) {
     rerenderBtn.addEventListener('click', () => triggerRender(dream.dream_id, true));
+  }
+  for (const p of PUBLISH_PLATFORMS) {
+    const btn = document.getElementById(`publish-${p.id}-btn`);
+    if (btn) btn.addEventListener('click', () => triggerPublish(dream.dream_id, p.id));
   }
 
   // Storyboard
@@ -630,6 +683,56 @@ function renderDreamDetail() {
 
 // ---- Render trigger ----
 
+// ---- Publish ----
+
+function publishButtonsHtml() {
+  const ch = DreamState.dreamChannels || {};
+  return PUBLISH_PLATFORMS
+    .filter(p => ch[p.id]?.[p.nameField])
+    .map(p => {
+      const cfg = ch[p.id];
+      const label = `📤 Post to ${p.labelPrefix}${escapeHtml(cfg[p.nameField])}`;
+      const tip = cfg[p.tipField] ? ` title="${escapeHtml(cfg[p.tipField])}"` : '';
+      return `<button class="publish-btn" id="publish-${p.id}-btn"${tip}>${label}</button>`;
+    })
+    .join('');
+}
+
+async function triggerPublish(dreamId, platform) {
+  const btn = document.getElementById(`publish-${platform}-btn`);
+  if (btn?.disabled) return;
+  const originalText = btn?.textContent;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = '📤 Posting…';
+  }
+
+  try {
+    const result = await apiJson(`/morpheus/dreams/${dreamId}/publish`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ platform }),
+    });
+    if (result?.ok) {
+      const p = PUBLISH_PLATFORMS.find(x => x.id === platform);
+      const cfg = DreamState.dreamChannels?.[platform] || {};
+      const where = p ? `${p.labelPrefix}${cfg[p.nameField] || 'channel'}` : 'channel';
+      const n = result.panels_published;
+      showToast(`Posted ${n} panel${n === 1 ? '' : 's'} to ${where}`, { kind: 'success' });
+    } else {
+      showToast(`Publish failed: ${result?.error || 'unexpected payload'}`, { kind: 'error', durationMs: 6000 });
+    }
+  } catch (err) {
+    console.error('[dreams] publish failed:', err);
+    showToast(`Publish failed: ${err.message || err}`, { kind: 'error', durationMs: 6000 });
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      if (originalText) btn.textContent = originalText;
+    }
+  }
+}
+
 async function triggerRender(dreamId, force = false) {
   const btn = document.getElementById('render-btn') || document.getElementById('rerender-btn');
   const modelSelect = document.getElementById('render-model');
@@ -714,7 +817,14 @@ function formatDuration(seconds) {
 }
 
 function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str || '';
-  return div.innerHTML;
+  // Escapes the five chars needed for both text-node and attribute-value
+  // contexts. The textContent-via-DOM idiom only escapes & < >, which is
+  // safe in text contexts but leaves " and ' live — vulnerable in
+  // title="...", alt="...", etc. Explicit replacement covers both.
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
