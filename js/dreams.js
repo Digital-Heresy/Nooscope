@@ -222,6 +222,7 @@ function onTokenSave() {
     setConnectedState(true);
     fetchDreamList();
     fetchCredits();
+    fetchDreamChannels();
   }
 }
 
@@ -256,7 +257,15 @@ async function apiRequest(path, options = {}) {
   }
 
   if (!resp.ok) {
-    throw new Error(`API error: ${resp.status} ${resp.statusText}`);
+    // Try to surface the backend's structured error body (e.g. publish's
+    // "no dream channel configured", "channel may have been removed").
+    // Clone so callers can still read the body if they catch and inspect.
+    let bodyError = null;
+    try {
+      const body = await resp.clone().json();
+      if (body && typeof body.error === 'string') bodyError = body.error;
+    } catch { /* non-JSON body — fall through to status line */ }
+    throw new Error(bodyError || `API error: ${resp.status} ${resp.statusText}`);
   }
 
   return resp;
@@ -349,7 +358,10 @@ async function fetchDreamChannels() {
     if (!err.message?.includes('404')) {
       console.warn('[dreams] dream_channels fetch failed:', err);
     }
-    DreamState.dreamChannels = {};
+    const next = {};
+    const changed = JSON.stringify(DreamState.dreamChannels) !== JSON.stringify(next);
+    DreamState.dreamChannels = next;
+    if (changed && DreamState.selectedDream) renderDreamDetail();
   }
 }
 
@@ -717,8 +729,15 @@ async function triggerPublish(dreamId, platform) {
       const p = PUBLISH_PLATFORMS.find(x => x.id === platform);
       const cfg = DreamState.dreamChannels?.[platform] || {};
       const where = p ? `${p.labelPrefix}${cfg[p.nameField] || 'channel'}` : 'channel';
+      // Defensive: if the backend stops sending panels_published, fall
+      // back to an uncounted success message rather than "Posted undefined
+      // panels". (message_ids.length is NOT a good fallback — one Discord
+      // message can carry up to 10 panels, so chunk count != panel count.)
       const n = result.panels_published;
-      showToast(`Posted ${n} panel${n === 1 ? '' : 's'} to ${where}`, { kind: 'success' });
+      const body = typeof n === 'number'
+        ? `Posted ${n} panel${n === 1 ? '' : 's'} to ${where}`
+        : `Posted to ${where}`;
+      showToast(body, { kind: 'success' });
     } else {
       showToast(`Publish failed: ${result?.error || 'unexpected payload'}`, { kind: 'error', durationMs: 6000 });
     }
