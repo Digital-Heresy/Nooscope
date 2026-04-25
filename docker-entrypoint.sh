@@ -42,6 +42,7 @@ const NOOSCOPE_CONFIG = {
 EOF
 fi
 
-echo "Nooscope config generated (mode: ${NOOSCOPE_HOST:+production}${NOOSCOPE_HOST:-dev})"
+mode="${NOOSCOPE_HOST:+production}"
+echo "Nooscope config generated (mode: ${mode:-dev})"
 
 exec "$@"
