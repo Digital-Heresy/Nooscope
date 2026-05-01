@@ -1,7 +1,7 @@
 ---
 # Nooscope-p8dr
 title: Dream publish button in dreams.html
-status: planned
+status: completed
 type: feature
 priority: normal
 created_at: 2026-04-22T00:00:00Z
