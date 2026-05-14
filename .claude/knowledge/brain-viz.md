@@ -40,7 +40,9 @@ The brain container gives spatial meaning to the force graph. Engram ornaments a
 
 From Thriden/Engram: `snapshot`, `node_activated`, `node_created`, `edge_reinforced`, `edge_created`, `graph_wiped`.
 
-From PersonaForge: `recall_fired`, `memory_formed`, `session_created`, `session_expired`, `working_memory_updated`.
+From PersonaForge: `recall_fired`, `memory_promoted`, `memory_formed`, `working_memory_updated`, `session_created`, `session_expired`, `acquaintance_created`, `acquaintance_updated`, `acquaintance_blocked`, `acquaintance_unblocked`, `acquaintance_forgotten`, `identity_linked`, `message_received`, `pi_text_delta`, `pi_tool_result`, `action_completed`, `dream_started`, `dream_completed`, `dream_storyboard_ready`, `backup_completed`, `cron_fired`.
+
+`memory_promoted` pulses the formation sentinel (consolidation-shaped), not recall. Acquaintance/identity events pulse the social sentinels — created/updated/unblocked/identity_linked on Social (Created), blocked/forgotten on Social (Expired).
 
 Dispatched by `handleEvent()` in `js/app.js`, which switches on `event.type` and calls the matching `MemoryGraph` method.
 
