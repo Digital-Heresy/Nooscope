@@ -1,5 +1,7 @@
 # AI coding agent local state (machine-specific, never commit)
-.claude/
+# Knowledge folder is the exception — committed so it travels with the repo.
+.claude/*
+!.claude/knowledge/
 .pi/
 
 # Nooscope config with tokens (use config.example.js as template)

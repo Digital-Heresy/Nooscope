@@ -6,72 +6,33 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Nooscope is a zero-build-tool browser app that renders a live 3D force-directed graph of memory telemetry from two upstream services:
 
-- **Thriden** — structural graph data (nodes, edges, activation, snapshots) via `ws://localhost:{port}/ws/telemetry`
+- **Thriden / Engram** — structural graph data (nodes, edges, activation, snapshots) via `ws://localhost:{port}/ws/telemetry`
 - **PersonaForge** — behavioral events (recall, memory formation, sessions) via `ws://localhost:{port}/ws/telemetry`
 
 No npm, no bundler. Open `index.html` in a browser. CDN deps: three.js 0.160.0, 3d-force-graph 1.79.1.
 
+## Knowledge folder
+
+Topic-specific reference docs live in `.claude/knowledge/`. When working on a subsystem listed below, read its file first; when you add, remove, or meaningfully change the underlying surface (new event type, new proxy route, changed visual encoding, new compose service), update the matching file in the same change.
+
+- `brain-viz.md` — Two rendering strategies (Engram ornaments vs PF sentinel dots), brain model + region mapping, telemetry event types, node/edge visual encoding, d3-force / graph-data invariants
+- `deployment.md` — Docker rebuild workflow, compose service shape, container security posture, image-choice rules under `cap_drop: ALL`
+- `networking.md` — nginx variable-`proxy_pass` + path-rewrite pattern, CORS-at-the-gateway rule, container outbound DNS override, admin gate on forge-web
+
 ## Development
 
-To run: open `index.html` directly in a browser, or use any static file server. No build step.
-
-URL params for auto-connect: `?scion=speaker`, `?scion=helix`, or `?thriden=3030&pf=8100`.
+Open `index.html` directly in a browser for static testing, or rebuild the Docker container (see `knowledge/deployment.md`) to test against the live Engram + PF backends. URL params for auto-connect: `?scion=speaker`, `?scion=helix`, `?thriden=3030&pf=8100`.
 
 ## Architecture
 
 Four JS files loaded as plain `<script>` tags (order matters):
 
 1. **`js/stream.js`** — `TelemetryStream` class. WebSocket client with exponential-backoff auto-reconnect. Parses JSON events and dispatches to callbacks.
-2. **`js/graph.js`** — `MemoryGraph` class. Wraps ForceGraph3D. Owns `nodeMap` (Map of id→node), `graphData` ({nodes, links}), favorites set. Handles snapshot init, incremental node/edge adds, pulse animations, recall highlighting, and selection halo via THREE.js custom objects.
-3. **`js/effects.js`** — `EventLog` and `InfoPanel` UI classes plus the global `toggleFavorite()` function.
-4. **`js/app.js`** — Entry point. Wires DOM events, manages connection lifecycle, dispatches telemetry events by type to graph methods, renders a test graph on startup.
+2. **`js/graph.js`** — `MemoryGraph` class. Wraps `ForceGraph3D`. Owns `nodeMap`, `graphData`, favorites. Handles snapshot init, incremental adds, pulses, recall highlighting, selection halo. See `knowledge/brain-viz.md`.
+3. **`js/effects.js`** — `EventLog` and `InfoPanel` UI classes plus the global `toggleFavorite()`.
+4. **`js/app.js`** — Entry point. Wires DOM events, manages connection lifecycle, dispatches telemetry events to graph methods, renders a test graph on startup.
 
-Key data flow: `TelemetryStream.onmessage` → `handleEvent()` (app.js) → switch on `event.type` → calls `MemoryGraph` methods → ForceGraph3D re-renders.
-
-## Telemetry event types
-
-From Thriden: `snapshot`, `node_activated`, `node_created`, `edge_reinforced`, `edge_created`, `graph_wiped`
-From PersonaForge: `recall_fired`, `memory_formed`, `session_created`, `session_expired`, `working_memory_updated`
-
-## Node visual encoding
-
-- **Color by scope**: `self` → pink, `universal` → green, `other:*`/`intimate:*` → blue
-- **Size**: `log2(activation_count + 1) * 0.8`, minimum 0.5
-- **Pulse**: white flash for 1s on activation, 2s on creation
-- **Edge color by origin**: `co_activation` → orange, `explicit` → white, `semantic_clustering` → purple
-- **Edge width**: `weight * 2.5`, minimum 0.2
-
-## Two rendering strategies
-
-The 3D brain has two fundamentally different rendering approaches depending on the data source:
-
-### Engram events → ornaments on a tree
-
-Each Engram node is a real, distinct memory. Nodes are distributed evenly throughout their scope's brain lobe (like ornaments on a Christmas tree — spread out so they don't clump). `RegionGeometry.seedPosition()` handles spherical shell placement by scope, consolidation depth, and salience. Edges form organically wherever Hebbian co-activation creates them — we don't control the wiring, just let it happen.
-
-### PersonaForge events → fixed sentinel dots at anatomical landmarks
-
-PF events don't represent individual memories — they represent *capability channels*. Each reflex category gets fixed dot(s) at a strategic brain location that pulse reactively when events fire. The pattern:
-1. Place a small solid sphere at the anatomical landmark (e.g., eye centers for input signals)
-2. On event fire, bump a scale factor toward 1.0 (stacking — rapid events keep inflating)
-3. Animate decay back to resting size over ~2s
-4. Cap max size to the containing wireframe geometry
-
-| PF Category | Landmark | Brain Region |
-|---|---|---|
-| Recall | TBD | Temporal Lobe |
-| Formation | TBD | Temporal Lobe |
-| Social | TBD | Frontal Lobe |
-| Agency | TBD | Cerebellum |
-| Circadian | TBD | Thalamus |
-| Vital | TBD | Brainstem |
-| Input (message_received) | Eye nerve dots | Eyes (front fixtures) |
-
-## Important patterns
-
-- d3-force mutates link `source`/`target` from string IDs to object references after simulation starts. All edge lookup code must handle both forms (see `addEdge`, `updateEdge`).
-- `graphData()` returns the live mutable data — always read it from the graph instance rather than using the stale `this.graphData` copy when doing incremental updates.
-- Globals: `graph`, `eventLog`, `infoPanel`, `thridenStream`, `pfStream` are module-level in app.js and referenced across files (e.g., `toggleFavorite` in effects.js uses `graph` and `infoPanel`).
+Data flow: `TelemetryStream.onmessage` → `handleEvent()` (app.js) → switch on `event.type` → `MemoryGraph` methods → `ForceGraph3D` re-renders.
 
 ## Scion presets
 
@@ -81,18 +42,4 @@ Defined in `NOOSCOPE_CONFIG.scions` (config.js): Speaker (3030/8100), Helix (303
 
 - **`index.html`** — Main 3D brain visualizer (WebSocket telemetry)
 - **`dreams.html`** — Morpheus dream storyboard viewer (REST API to PersonaForge)
-
-## Docker deployment (local dev testing)
-
-Nooscope runs as a container in the MindHive docker-compose stack. The Dockerfile does a local COPY (not repo clone), so changes are tested by rebuilding without committing.
-
-**To rebuild and test changes**, run:
-```
-docker compose -f C:/Users/ronin/Documents/Projects/MindHive/docker-compose.yml up --build nooscope -d
-```
-
-Then access at `http://localhost:8080` (index.html) or `http://localhost:8080/dreams.html`.
-
-This rebuilds only the Nooscope container using the local working directory. The nginx proxy handles CORS and routes `/morpheus/` requests to PersonaForge and `/ws/telemetry` to Engram.
-
-**When to rebuild**: After any HTML, CSS, JS, nginx.conf, or Dockerfile changes that need live testing against the backend services. Always offer to rebuild when the user wants to test changes.
+- **`social.html`** — Social graph view (in progress, see `Nooscope-nkvw`)
