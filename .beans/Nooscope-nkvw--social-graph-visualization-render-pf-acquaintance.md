@@ -1,10 +1,10 @@
 ---
 # Nooscope-nkvw
 title: Social-graph visualization — render PF acquaintance graph with anomaly highlights
-status: todo
+status: completed
 type: feature
 created_at: 2026-05-10T06:13:55Z
-updated_at: 2026-05-10T06:13:55Z
+updated_at: 2026-05-15T00:00:00Z
 ---
 
 Render each Scion's social graph as an inspectable network diagram. Operator can spot relationship confusion, alias pollution, broken identity links, and cross-Scion divergence visually instead of via mongo queries.

@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nooscope — Social</title>
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/social.css">
+</head>
+<body class="social-page">
+
+  <!-- Status bar -->
+  <div id="status-bar">
+    <div class="status-left">
+      <span class="logo">Nooscope</span>
+      <nav class="nav-links">
+        <a href="index.html" class="nav-link">Activity</a>
+        <a href="dreams.html" class="nav-link">Dreams</a>
+        <a href="social.html" class="nav-link active">Social</a>
+      </nav>
+      <select id="scion-select"></select>
+      <button id="refresh-btn" title="Reload graph">&#8635;</button>
+    </div>
+    <div class="status-right">
+      <span id="mode-badge" class="mode-badge public">PUBLIC</span>
+      <button id="admin-toggle-btn" class="admin-btn" title="Admin login">&#128274;</button>
+      <span id="pf-live-dot" class="live-dot offline" title="Live updates: disconnected"></span>
+      <span id="acquaintance-count" class="stat">— acquaintances</span>
+      <span id="anomaly-count" class="stat">— anomalies</span>
+    </div>
+  </div>
+
+  <!-- Admin login dialog (mirrors index.html) -->
+  <div id="admin-dialog" class="hidden">
+    <div class="admin-dialog-inner">
+      <div class="panel-header">
+        <span>Admin Login</span>
+        <button id="admin-dialog-close">&times;</button>
+      </div>
+      <div class="admin-dialog-body">
+        <label>Raven Token: <input id="admin-token-input" type="password" placeholder="paste token"></label>
+        <div class="admin-dialog-actions">
+          <button id="admin-login-btn">Login</button>
+          <button id="admin-logout-btn" class="hidden">Logout</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Filter / search overlay -->
+  <div id="social-controls">
+    <input type="text" id="search-input" placeholder="Search name, nickname, @handle…" autocomplete="off">
+    <div id="filter-chips">
+      <details class="chip-group">
+        <summary>Platform</summary>
+        <div class="chip-options" data-filter="platform"></div>
+      </details>
+      <details class="chip-group">
+        <summary>Status</summary>
+        <div class="chip-options" data-filter="status">
+          <label><input type="checkbox" value="active" checked> active</label>
+          <label><input type="checkbox" value="blocked" checked> blocked</label>
+        </div>
+      </details>
+      <details class="chip-group">
+        <summary>Severity</summary>
+        <div class="chip-options" data-filter="severity">
+          <label><input type="checkbox" value="critical" checked> critical</label>
+          <label><input type="checkbox" value="high" checked> high</label>
+          <label><input type="checkbox" value="medium" checked> medium</label>
+          <label><input type="checkbox" value="informational" checked> info</label>
+        </div>
+      </details>
+    </div>
+    <div id="kind-legend">
+      <span class="legend-item"><span class="legend-dot kind-creator"></span>creator</span>
+      <span class="legend-item"><span class="legend-dot kind-scion"></span>scion-peer</span>
+      <span class="legend-item"><span class="legend-dot kind-bot"></span>bot</span>
+      <span class="legend-item"><span class="legend-dot kind-human"></span>human</span>
+      <span class="legend-item"><span class="legend-dot kind-blocked"></span>blocked</span>
+    </div>
+  </div>
+
+  <!-- Anomaly summary banner -->
+  <div id="anomaly-banner" class="hidden"></div>
+
+  <!-- Graph container -->
+  <div id="social-graph-container"></div>
+
+  <!-- Empty / error state -->
+  <div id="social-empty" class="empty-state hidden">
+    <p id="empty-message">Select a scion to view its social graph</p>
+  </div>
+
+  <!-- Inspect side panel -->
+  <div id="acquaintance-panel" class="hidden">
+    <div class="panel-header">
+      <span id="acquaintance-panel-title">Acquaintance</span>
+      <button id="acquaintance-panel-close">&times;</button>
+    </div>
+    <div id="acquaintance-panel-body"></div>
+  </div>
+
+  <!-- CDN deps -->
+  <script src="https://unpkg.com/force-graph@1.49.0/dist/force-graph.min.js"></script>
+
+  <!-- App modules -->
+  <script src="js/config.js"></script>
+  <script src="js/stream.js"></script>
+  <script src="js/social.js"></script>
+</body>
+</html>
