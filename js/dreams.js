@@ -330,7 +330,7 @@ function renderCredits() {
   if (!el || !DreamState.credits) return;
   const c = DreamState.credits;
   const usd = c.cost_per_credit_usd ? ` (~$${(c.credits * c.cost_per_credit_usd).toFixed(2)})` : '';
-  el.textContent = `${c.credits} credits${usd}`;
+  el.textContent = `${Math.round(c.credits)} credits${usd}`;
   el.classList.remove('hidden');
 }
 
