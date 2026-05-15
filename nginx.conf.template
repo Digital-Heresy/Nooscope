@@ -17,6 +17,21 @@
 # Rate limiting for public WebSocket connections
 limit_req_zone $binary_remote_addr zone=ws_public:10m rate=2r/s;
 
+# Conditional Authorization header injection for Morpheus REST. nginx's
+# `if` directive inside a location is famously brittle when combined with
+# proxy_pass/proxy_set_header (mutating headers via if-set doesn't always
+# reach the upstream). `map` at the http level is the canonical fix.
+# Public mode → empty Bearer (Morpheus 401s the admin-only endpoints,
+# which is the right behavior); admin mode → real bearer per scion.
+map $cookie_nooscope_admin $morpheus_auth_speaker {
+    "1"     "Bearer $MORPHEUS_TOKEN_SPEAKER";
+    default "";
+}
+map $cookie_nooscope_admin $morpheus_auth_helix {
+    "1"     "Bearer $MORPHEUS_TOKEN_HELIX";
+    default "";
+}
+
 server {
     listen 8080;
     server_name _;
@@ -137,13 +152,9 @@ server {
         proxy_pass http://$forge_speaker;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        # Inject Morpheus token when admin; pass empty header otherwise so
-        # Morpheus rejects admin-only endpoints with 401.
-        set $morpheus_auth "";
-        if ($cookie_nooscope_admin = "1") {
-            set $morpheus_auth "Bearer $MORPHEUS_TOKEN_SPEAKER";
-        }
-        proxy_set_header Authorization $morpheus_auth;
+        # Inject Morpheus token when admin (via map above); empty Bearer
+        # otherwise so Morpheus 401s admin-only endpoints cleanly.
+        proxy_set_header Authorization $morpheus_auth_speaker;
         proxy_read_timeout 120;
 
         # PF/Morpheus also emits Access-Control-* headers. Hide them so only
@@ -219,11 +230,7 @@ server {
         proxy_pass http://$forge_helix;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        set $morpheus_auth "";
-        if ($cookie_nooscope_admin = "1") {
-            set $morpheus_auth "Bearer $MORPHEUS_TOKEN_HELIX";
-        }
-        proxy_set_header Authorization $morpheus_auth;
+        proxy_set_header Authorization $morpheus_auth_helix;
         proxy_read_timeout 120;
 
         proxy_hide_header Access-Control-Allow-Origin;
