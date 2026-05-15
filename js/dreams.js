@@ -56,20 +56,20 @@ document.addEventListener('DOMContentLoaded', () => {
     fetchDreamList().finally(() => btn.classList.remove('spinning'));
   });
 
-  // Shared admin auth (Nooscope-r5kh). When admin state flips, re-fetch
-  // the admin-only data (credits, dream channels) and re-render whatever
-  // dream is open so its publish/storyboard affordances update.
+  // Shared admin auth (Nooscope-r5kh). On admin state flip:
+  //   - became admin → auto-reconnect if a scion was selected (covers
+  //     the "Connect → 401 → login → resume" flow)
+  //   - became public → null out admin-only state and re-render
   NooscopeAuth.init();
   NooscopeAuth.onAdminStateChange(() => {
-    if (DreamState.isConnected) {
-      if (NooscopeAuth.isAdmin()) {
-        fetchCredits();
-        fetchDreamChannels();
-      } else {
-        DreamState.credits = null;
-        DreamState.dreamChannels = null;
-        document.getElementById('credits-display').classList.add('hidden');
-      }
+    if (NooscopeAuth.isAdmin()) {
+      const selected = document.getElementById('scion-select').value;
+      const preset = SCION_PRESETS[selected];
+      if (preset) connectToScion(preset, selected);
+    } else if (DreamState.isConnected) {
+      DreamState.credits = null;
+      DreamState.dreamChannels = null;
+      document.getElementById('credits-display').classList.add('hidden');
       if (DreamState.selectedDream) renderDreamDetail();
     }
   });
@@ -195,10 +195,14 @@ async function apiRequest(path, options = {}) {
   const resp = await fetch(url, { ...options, headers });
 
   if (resp.status === 401) {
-    // Admin-only endpoint hit in public mode. Prompt the user to log in;
-    // the calling code surfaces the path-level error normally.
+    // Admin-only endpoint hit in public mode. Prompt the user to log in
+    // and revert the optimistic "connected" UI — otherwise the button
+    // stays stuck on "Disconnect" while no data ever loads. After a
+    // successful login the onAdminStateChange hook re-fires the connect.
     if (!NooscopeAuth.isAdmin()) {
       NooscopeAuth.openModal();
+      setConnectedState(false);
+      setPfStatus('disconnected');
     }
     throw new Error('Unauthorized — admin login required');
   }

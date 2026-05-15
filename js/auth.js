@@ -29,8 +29,12 @@
   // Configured = entrypoint had NOOSCOPE_ADMIN_PASSWORD set. When unset
   // (dev quick-starts, hostile envs), the UI omits the lock icon entirely
   // rather than offering a login that can't succeed.
+  //
+  // Note: NOOSCOPE_CONFIG is declared with `const` in config.js — top-level
+  // `const` lives in the global lexical scope, NOT on `window`. Reference
+  // the bare name, not `window.NOOSCOPE_CONFIG` (which would be undefined).
   function isConfigured() {
-    return !!(global.NOOSCOPE_CONFIG && global.NOOSCOPE_CONFIG.adminHash);
+    return !!(typeof NOOSCOPE_CONFIG !== 'undefined' && NOOSCOPE_CONFIG.adminHash);
   }
 
   async function sha256Hex(text) {
@@ -45,7 +49,7 @@
     if (!isConfigured()) return { ok: false, reason: 'no-admin-configured' };
     if (!password) return { ok: false, reason: 'empty-password' };
     const digest = await sha256Hex(password);
-    if (digest !== global.NOOSCOPE_CONFIG.adminHash) {
+    if (digest !== NOOSCOPE_CONFIG.adminHash) {
       return { ok: false, reason: 'mismatch' };
     }
     sessionStorage.setItem(SESSION_KEY, '1');
