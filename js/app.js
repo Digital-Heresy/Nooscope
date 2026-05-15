@@ -5,39 +5,9 @@
 
 const SCION_PRESETS = NOOSCOPE_CONFIG.scions;
 
-// ---- Mode management ----
-const TOKEN_KEY = 'nooscope_raven_token';
-
-function getToken() {
-  return sessionStorage.getItem(TOKEN_KEY);
-}
-
-function isAdmin() {
-  return !!getToken();
-}
-
-function updateModeUI() {
-  const badge = document.getElementById('mode-badge');
-  const adminBtn = document.getElementById('admin-toggle-btn');
-  const loginBtn = document.getElementById('admin-login-btn');
-  const logoutBtn = document.getElementById('admin-logout-btn');
-
-  if (isAdmin()) {
-    badge.textContent = 'ADMIN';
-    badge.className = 'mode-badge admin';
-    adminBtn.className = 'admin-btn active';
-    adminBtn.innerHTML = '&#128275;'; // open lock
-    if (loginBtn) loginBtn.classList.add('hidden');
-    if (logoutBtn) logoutBtn.classList.remove('hidden');
-  } else {
-    badge.textContent = 'PUBLIC';
-    badge.className = 'mode-badge public';
-    adminBtn.className = 'admin-btn';
-    adminBtn.innerHTML = '&#128274;'; // closed lock
-    if (loginBtn) loginBtn.classList.remove('hidden');
-    if (logoutBtn) logoutBtn.classList.add('hidden');
-  }
-}
+// Admin state lives in NooscopeAuth (js/auth.js) post-r5kh. Local alias so
+// existing call sites stay readable.
+const isAdmin = () => NooscopeAuth.isAdmin();
 
 // ---- State ----
 let graph = null;
@@ -100,8 +70,13 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   // Otherwise wait for user to click Connect
 
-  // Set initial mode UI
-  updateModeUI();
+  // Initialize shared admin auth (Nooscope-r5kh). Installs the password
+  // modal, wires the lock-icon, and toggles badge/lock state to match.
+  NooscopeAuth.init();
+  NooscopeAuth.onAdminStateChange(() => {
+    // Reconnect on admin/public flip so the right WS path is used.
+    if (currentScion) reconnectWithCurrentMode();
+  });
 
   // UI wiring
   document.getElementById('connect-btn').addEventListener('click', onConnect);
@@ -110,15 +85,6 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('rotate-btn').addEventListener('click', toggleRotation);
   document.getElementById('pos-toggle-btn').addEventListener('click', togglePosControls);
   document.getElementById('brain-toggle-btn').addEventListener('click', toggleBrain);
-
-  // Admin dialog wiring
-  document.getElementById('admin-toggle-btn').addEventListener('click', toggleAdminDialog);
-  document.getElementById('admin-dialog-close').addEventListener('click', closeAdminDialog);
-  document.getElementById('admin-login-btn').addEventListener('click', adminLogin);
-  document.getElementById('admin-logout-btn').addEventListener('click', adminLogout);
-  document.getElementById('admin-dialog').addEventListener('click', (e) => {
-    if (e.target.id === 'admin-dialog') closeAdminDialog();
-  });
 
   // Pause rotation when user interacts with the 3D view
   const graphEl = document.getElementById('graph-container');
@@ -174,14 +140,16 @@ function onCustomConnect() {
 // ---- Connection ----
 
 function buildWsUrl(scionConfig, service) {
-  const token = getToken();
-  const path = token ? '/ws/telemetry' : '/ws/telemetry/public';
+  // Admin → privileged endpoint (nginx injects bearer subprotocol upstream).
+  // Public → /public variant (rate-limited, no auth required).
+  const admin = isAdmin();
+  const path = admin ? '/ws/telemetry' : '/ws/telemetry/public';
 
   if (scionConfig.host) {
     // Production: use proxy path prefix per scion (e.g. /speaker/ws/telemetry)
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const prefix = scionConfig.pfPrefix || '';
-    const wsPath = service === 'pf' ? `/ws/pf/telemetry${token ? '' : '/public'}` : path;
+    const wsPath = service === 'pf' ? `/ws/pf/telemetry${admin ? '' : '/public'}` : path;
     return `${protocol}//${scionConfig.host}${prefix}${wsPath}`;
   } else {
     // Development: localhost with port
@@ -197,7 +165,6 @@ function connectTo(scionConfig) {
   if (pfStream) pfStream.disconnect();
 
   currentScion = scionConfig;
-  const token = getToken();
 
   const callbacks = {
     onEvent: handleEvent,
@@ -219,13 +186,13 @@ function connectTo(scionConfig) {
 
   const thridenUrl = buildWsUrl(scionConfig, 'thriden');
   if (thridenUrl) {
-    thridenStream = new TelemetryStream('thriden', thridenUrl, callbacks, token);
+    thridenStream = new TelemetryStream('thriden', thridenUrl, callbacks);
     thridenStream.connect();
   }
 
   const pfUrl = buildWsUrl(scionConfig, 'pf');
   if (pfUrl) {
-    pfStream = new TelemetryStream('pf', pfUrl, callbacks, token);
+    pfStream = new TelemetryStream('pf', pfUrl, callbacks);
     pfStream.connect();
   }
 }
@@ -456,47 +423,6 @@ function toggleBrain() {
   const visible = graph.toggleBrain();
   const btn = document.getElementById('brain-toggle-btn');
   btn.className = visible ? 'brain-btn active' : 'brain-btn';
-}
-
-// ---- Admin login/logout ----
-
-function toggleAdminDialog() {
-  const dialog = document.getElementById('admin-dialog');
-  dialog.classList.toggle('hidden');
-  if (!dialog.classList.contains('hidden')) {
-    document.getElementById('admin-token-input').focus();
-  }
-}
-
-function closeAdminDialog() {
-  document.getElementById('admin-dialog').classList.add('hidden');
-}
-
-function adminLogin() {
-  const input = document.getElementById('admin-token-input');
-  const token = input.value.trim();
-  if (!token) return;
-
-  sessionStorage.setItem(TOKEN_KEY, token);
-  input.value = '';
-  closeAdminDialog();
-  updateModeUI();
-
-  // Reconnect with admin credentials if we have an active scion
-  if (currentScion) {
-    reconnectWithCurrentMode();
-  }
-}
-
-function adminLogout() {
-  sessionStorage.removeItem(TOKEN_KEY);
-  closeAdminDialog();
-  updateModeUI();
-
-  // Reconnect in public mode if we have an active scion
-  if (currentScion) {
-    reconnectWithCurrentMode();
-  }
 }
 
 // ---- Startup intro: Thriden logo (triangle + interleaved T) ----

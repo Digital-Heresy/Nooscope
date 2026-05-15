@@ -9,13 +9,18 @@ COPY css/ /usr/share/nginx/html/css/
 COPY js/ /usr/share/nginx/html/js/
 COPY models/ /usr/share/nginx/html/models/
 
-# Production nginx config with WebSocket proxy
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Production nginx config as a template — docker-entrypoint envsubsts per-
+# Scion tokens into it at container start (Nooscope-r5kh).
+COPY nginx.conf.template /etc/nginx/conf.d/default.conf.template
 
-# Entrypoint generates config.js from env vars before nginx starts
+# Entrypoint generates config.js from env vars and materializes the nginx
+# config from its template before nginx starts. gettext provides envsubst;
+# the upstream image doesn't ship it.
 COPY docker-entrypoint.sh /docker-entrypoint.sh
-RUN chmod +x /docker-entrypoint.sh \
-    && chown -R nginx:nginx /usr/share/nginx/html
+RUN apk add --no-cache gettext \
+    && chmod +x /docker-entrypoint.sh \
+    && chown -R nginx:nginx /usr/share/nginx/html \
+    && chown -R nginx:nginx /etc/nginx/conf.d
 
 USER nginx
 

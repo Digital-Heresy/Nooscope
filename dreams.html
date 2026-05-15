@@ -28,7 +28,9 @@
       <button id="connect-btn">Connect</button>
     </div>
     <div class="status-right">
-      <span id="credits-display" class="stat hidden"></span>
+      <span id="mode-badge" class="mode-badge public">PUBLIC</span>
+      <button id="admin-toggle-btn" class="admin-btn" title="Admin login">&#128274;</button>
+      <span id="credits-display" class="stat hidden" data-admin-only></span>
       <span id="pf-status" class="status-indicator disconnected">PF</span>
       <span id="dream-count" class="stat">—</span>
     </div>
@@ -37,24 +39,11 @@
   <!-- Custom connection dialog -->
   <div id="custom-dialog" class="hidden">
     <label>PF port: <input id="custom-pf" type="number" value="8100"></label>
-    <label>Token: <input id="custom-token" type="password" placeholder="morpheus_token"></label>
     <button id="custom-connect-btn">Connect</button>
   </div>
 
-  <!-- Token dialog (for named scions) -->
-  <div id="token-dialog" class="hidden">
-    <div class="token-dialog-inner">
-      <div class="panel-header">
-        <span>Morpheus Token</span>
-        <button id="token-dialog-close">&times;</button>
-      </div>
-      <div class="token-dialog-body">
-        <p>Enter your Morpheus token to access dream data.</p>
-        <label>Token: <input id="token-input" type="password" placeholder="morpheus_token"></label>
-        <button id="token-save-btn">Save &amp; Connect</button>
-      </div>
-    </div>
-  </div>
+  <!-- Admin login modal is installed by js/auth.js (Nooscope-r5kh) -->
+
 
   <!-- Main content -->
   <div id="dreams-container">
@@ -81,6 +70,7 @@
   </div>
 
   <script src="js/config.js"></script>
+  <script src="js/auth.js"></script>
   <script src="js/dreams.js"></script>
 </body>
 </html>

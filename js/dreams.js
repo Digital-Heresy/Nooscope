@@ -4,18 +4,20 @@
  */
 
 const SCION_PRESETS = NOOSCOPE_CONFIG.scions;
-const TOKEN_PREFIX = 'morpheus_token_';
 
 // ---- State ----
+// Post Nooscope-r5kh: no per-Scion morpheus token is stored anywhere on
+// the browser. Public requests reach Morpheus unauthenticated; admin
+// requests pick up a Bearer header injected by nginx when the
+// nooscope_admin cookie is set. Admin-only Morpheus endpoints
+// (credits, storyboard render, publish) naturally 401 in public mode.
 const DreamState = {
   pfBaseUrl: null,
-  token: null,
-  scionName: null,      // current scion name for per-scion token storage
+  scionName: null,
   dreams: [],
   selectedDreamId: null,
   selectedDream: null,
   dreamCache: new Map(), // dreamId → { dream, fullyRendered }
-  _authPromptActive: false, // prevent 401 re-prompt loop
   renderPollTimer: null,
   renderPollStart: 0,
   isConnected: false,
@@ -28,24 +30,6 @@ const PUBLISH_PLATFORMS = [
   { id: 'discord',  nameField: 'channel_name', labelPrefix: '#', tipField: 'guild_name' },
   { id: 'telegram', nameField: 'chat_title',   labelPrefix: '',  tipField: 'chat_type' },
 ];
-
-function tokenKey() {
-  return TOKEN_PREFIX + (DreamState.scionName || 'default');
-}
-
-function loadToken() {
-  DreamState.token = localStorage.getItem(tokenKey());
-}
-
-function saveToken(token) {
-  DreamState.token = token;
-  localStorage.setItem(tokenKey(), token);
-}
-
-function clearToken() {
-  DreamState.token = null;
-  localStorage.removeItem(tokenKey());
-}
 
 // ---- Init ----
 document.addEventListener('DOMContentLoaded', () => {
@@ -71,14 +55,24 @@ document.addEventListener('DOMContentLoaded', () => {
     btn.classList.add('spinning');
     fetchDreamList().finally(() => btn.classList.remove('spinning'));
   });
-  document.getElementById('token-save-btn').addEventListener('click', onTokenSave);
-  document.getElementById('token-dialog-close').addEventListener('click', closeTokenDialog);
-  document.getElementById('token-dialog').addEventListener('click', (e) => {
-    if (e.target.id === 'token-dialog') closeTokenDialog();
+
+  // Shared admin auth (Nooscope-r5kh). When admin state flips, re-fetch
+  // the admin-only data (credits, dream channels) and re-render whatever
+  // dream is open so its publish/storyboard affordances update.
+  NooscopeAuth.init();
+  NooscopeAuth.onAdminStateChange(() => {
+    if (DreamState.isConnected) {
+      if (NooscopeAuth.isAdmin()) {
+        fetchCredits();
+        fetchDreamChannels();
+      } else {
+        DreamState.credits = null;
+        DreamState.dreamChannels = null;
+        document.getElementById('credits-display').classList.add('hidden');
+      }
+      if (DreamState.selectedDream) renderDreamDetail();
+    }
   });
-
-  // Cleanup blob URLs on page unload
-
 
   // Check URL params
   const params = new URLSearchParams(window.location.search);
@@ -109,19 +103,17 @@ function buildPfBaseUrl(scionConfig) {
 function connectToScion(scionConfig, scionName) {
   DreamState.scionName = scionName || 'custom';
   DreamState.pfBaseUrl = buildPfBaseUrl(scionConfig);
-  DreamState._authPromptActive = false;
-  loadToken();
-
-  if (!DreamState.token) {
-    showTokenDialog();
-    return;
-  }
 
   setPfStatus('connected');
   setConnectedState(true);
+  // Dream timeline reads work in public mode (Morpheus allows
+  // unauthenticated GET on /dreams). Admin-only data — credits, channels —
+  // only fetched when the user holds an admin session.
   fetchDreamList();
-  fetchCredits();
-  fetchDreamChannels();
+  if (NooscopeAuth.isAdmin()) {
+    fetchCredits();
+    fetchDreamChannels();
+  }
 }
 
 function disconnectAll() {
@@ -186,70 +178,29 @@ function onScionChange() {
 
 function onCustomConnect() {
   const pfPort = parseInt(document.getElementById('custom-pf').value);
-  const token = document.getElementById('custom-token').value.trim();
   document.getElementById('custom-dialog').classList.add('hidden');
-
-  DreamState.scionName = 'custom';
-  if (token) {
-    saveToken(token);
-  }
-
   connectToScion({ pf: pfPort }, 'custom');
-}
-
-// ---- Token dialog ----
-
-function showTokenDialog() {
-  document.getElementById('token-dialog').classList.remove('hidden');
-  document.getElementById('token-input').focus();
-}
-
-function closeTokenDialog() {
-  document.getElementById('token-dialog').classList.add('hidden');
-}
-
-function onTokenSave() {
-  const token = document.getElementById('token-input').value.trim();
-  if (!token) return;
-
-  saveToken(token);
-  DreamState._authPromptActive = false;
-  document.getElementById('token-input').value = '';
-  closeTokenDialog();
-
-  if (DreamState.pfBaseUrl) {
-    setPfStatus('connected');
-    setConnectedState(true);
-    fetchDreamList();
-    fetchCredits();
-    fetchDreamChannels();
-  }
 }
 
 // ---- API ----
 
 async function apiRequest(path, options = {}) {
   if (!DreamState.pfBaseUrl) throw new Error('Not connected');
-  if (!DreamState.token) throw new Error('No token');
 
   const url = `${DreamState.pfBaseUrl}${path}`;
-  const headers = {
-    'Authorization': `Bearer ${DreamState.token}`,
-    ...options.headers,
-  };
+  const headers = { ...options.headers };
+  // No browser-side token — nginx injects the morpheus bearer upstream
+  // when the nooscope_admin cookie is present (Nooscope-r5kh).
 
   const resp = await fetch(url, { ...options, headers });
 
   if (resp.status === 401) {
-    if (!DreamState._authPromptActive) {
-      DreamState._authPromptActive = true;
-      // Clear token from memory only — keep localStorage so reconnect can retry
-      DreamState.token = null;
-      setConnectedState(false);
-      setPfStatus('disconnected');
-      showTokenDialog();
+    // Admin-only endpoint hit in public mode. Prompt the user to log in;
+    // the calling code surfaces the path-level error normally.
+    if (!NooscopeAuth.isAdmin()) {
+      NooscopeAuth.openModal();
     }
-    throw new Error('Unauthorized — token expired or invalid');
+    throw new Error('Unauthorized — admin login required');
   }
 
   if (resp.status === 409) {
@@ -546,8 +497,8 @@ function renderDreamDetail() {
       ${dream.render_model ? `<span class="detail-stat">Model: <span class="value">${dream.render_model}</span></span>` : ''}
       ${dream.render_cost_credits ? `<span class="detail-stat">Cost: <span class="value">${formatCost(dream.render_cost_credits)}</span></span>` : ''}
     </div>
-    ${panels.length > 0 ? `
-      <div class="detail-actions">
+    ${panels.length > 0 && NooscopeAuth.isAdmin() ? `
+      <div class="detail-actions" data-admin-only>
         <select id="render-model" class="render-model-select">
           <option value="klein" selected>Klein (fast)</option>
           <option value="pro">Pro (upscale)</option>

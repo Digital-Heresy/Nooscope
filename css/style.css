@@ -420,8 +420,11 @@ button.disabled {
   border-color: var(--accent-green);
 }
 
-/* Admin login dialog */
-#admin-dialog {
+/* Admin login dialog. Both ids share the same shell so legacy per-page
+   markup (#admin-dialog) and the auth.js-installed modal (Nooscope-r5kh,
+   #nooscope-admin-dialog) look identical. */
+#admin-dialog,
+#nooscope-admin-dialog {
   position: fixed;
   top: 0;
   left: 0;
@@ -432,6 +435,15 @@ button.disabled {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+.admin-dialog-error {
+  color: var(--severity-high, #ff6464);
+  font-size: 12px;
+}
+
+#nooscope-admin-logout-btn {
+  background: var(--status-disconnected);
 }
 
 .admin-dialog-inner {

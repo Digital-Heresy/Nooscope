@@ -3,24 +3,26 @@
  * Connects to Thriden and PersonaForge WebSocket endpoints.
  */
 class TelemetryStream {
-  constructor(name, url, callbacks, token) {
+  constructor(name, url, callbacks) {
     this.name = name;
     this.url = url;
     this.callbacks = callbacks;
-    this.token = token || null;
     this.ws = null;
     this.reconnectDelay = 1000;
     this.maxReconnectDelay = 30000;
     this.shouldReconnect = true;
   }
 
+  // Auth note (Nooscope-r5kh): the browser never attaches a token here.
+  // The admin variant of /ws/telemetry is gated by the `nooscope_admin`
+  // cookie at the nginx layer, which then injects the bearer subprotocol
+  // on the upstream upgrade. The public variant carries no auth at all.
   connect() {
     this.shouldReconnect = true;
     this._setStatus('reconnecting');
 
     try {
-      const protocols = this.token ? ['bearer.' + this.token] : undefined;
-      this.ws = new WebSocket(this.url, protocols);
+      this.ws = new WebSocket(this.url);
     } catch (e) {
       this._scheduleReconnect();
       return;

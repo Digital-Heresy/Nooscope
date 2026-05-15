@@ -1,5 +1,18 @@
-# Nooscope production nginx config
-# WebSocket + REST proxy for Engram (Thriden) and PersonaForge
+# Nooscope production nginx config (Nooscope-r5kh).
+#
+# This file is a TEMPLATE — `docker-entrypoint.sh` runs envsubst on it at
+# container start to materialize per-Scion upstream tokens from env vars
+# into the final /etc/nginx/conf.d/default.conf. The literal `$VAR`
+# placeholders (RAVEN_TOKEN_*, MORPHEUS_TOKEN_*, FORGE_WEB_ADMIN_TOKEN)
+# below are substituted; nginx's native `$variable` references (the
+# `$http_*`, `$cookie_*`, `$engram_*` family) are NOT touched because
+# envsubst is invoked with a positive allow-list.
+#
+# Tokens reach the upstream as injected headers; the browser never
+# handles them. Public mode = no admin cookie = no token-bearing path.
+# Admin mode = `nooscope_admin=1` cookie present (set by js/auth.js on
+# password match) = nginx unlocks admin routes and injects the right
+# bearer.
 
 # Rate limiting for public WebSocket connections
 limit_req_zone $binary_remote_addr zone=ws_public:10m rate=2r/s;
@@ -39,19 +52,37 @@ server {
 
     # ---- Speaker scion ----
 
-    # Engram WebSocket (authenticated)
+    # Engram WebSocket (authenticated). Browser opens this without an
+    # Authorization header (which WebSocket doesn't allow anyway); the
+    # auth cookie gate below blocks drive-by attempts, and nginx injects
+    # the bearer subprotocol on the upstream upgrade so engram sees a
+    # well-formed handshake. If engram rejects proxy-injected subprotocols
+    # (r5kh acknowledges this risk — RFC 6455 says the server must select
+    # from the client-offered list), the fallback path is a cookie-gated
+    # /js/config.admin.js that ships the raven token to the browser for
+    # WS use only. Try this server-side path first; if the browser sees
+    # 1006/closed upgrades, swap to the fallback.
     location /speaker/ws/telemetry {
+        if ($cookie_nooscope_admin != "1") { return 401; }
         rewrite ^/speaker(/.*)$ $1 break;
         proxy_pass http://$engram_speaker;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
+        proxy_set_header Sec-WebSocket-Protocol "bearer.$RAVEN_TOKEN_SPEAKER";
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_read_timeout 86400;
+        # Strip the upstream's echoed subprotocol from the 101 response —
+        # the browser didn't offer a subprotocol so seeing one in the
+        # server response would fail the upgrade. Stripping it leaves the
+        # handshake without a negotiated subprotocol; engram's reading of
+        # the inbound bearer header happens before the response, so auth
+        # still attaches.
+        proxy_hide_header Sec-WebSocket-Protocol;
     }
 
-    # Engram WebSocket (public) — rate limited
+    # Engram WebSocket (public) — rate limited, no auth
     location /speaker/ws/telemetry/public {
         limit_req zone=ws_public burst=5 nodelay;
         rewrite ^/speaker(/.*)$ $1 break;
@@ -66,14 +97,17 @@ server {
 
     # PF WebSocket (authenticated) — /speaker/ws/pf/telemetry → /ws/telemetry
     location /speaker/ws/pf/telemetry {
+        if ($cookie_nooscope_admin != "1") { return 401; }
         rewrite ^/speaker/ws/pf(/telemetry.*)$ /ws$1 break;
         proxy_pass http://$forge_speaker;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
+        proxy_set_header Sec-WebSocket-Protocol "bearer.$MORPHEUS_TOKEN_SPEAKER";
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_read_timeout 86400;
+        proxy_hide_header Sec-WebSocket-Protocol;
     }
 
     # PF WebSocket (public) — rate limited
@@ -89,7 +123,12 @@ server {
         proxy_read_timeout 86400;
     }
 
-    # Morpheus REST API
+    # Morpheus REST API. The dreams page surfaces a public timeline read
+    # (GET /morpheus/dreams) and admin-only writes/credits/storyboard;
+    # PF/Morpheus differentiates these on its side via the Authorization
+    # header. Strategy: nginx injects the morpheus token only when the
+    # Nooscope admin cookie is present, so admin-only Morpheus endpoints
+    # naturally 401 in public mode while public reads work for everyone.
     location /speaker/morpheus/ {
         if ($request_method = 'OPTIONS') {
             return 204;
@@ -98,7 +137,13 @@ server {
         proxy_pass http://$forge_speaker;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header Authorization $http_authorization;
+        # Inject Morpheus token when admin; pass empty header otherwise so
+        # Morpheus rejects admin-only endpoints with 401.
+        set $morpheus_auth "";
+        if ($cookie_nooscope_admin = "1") {
+            set $morpheus_auth "Bearer $MORPHEUS_TOKEN_SPEAKER";
+        }
+        proxy_set_header Authorization $morpheus_auth;
         proxy_read_timeout 120;
 
         # PF/Morpheus also emits Access-Control-* headers. Hide them so only
@@ -115,14 +160,17 @@ server {
     # ---- Helix scion ----
 
     location /helix/ws/telemetry {
+        if ($cookie_nooscope_admin != "1") { return 401; }
         rewrite ^/helix(/.*)$ $1 break;
         proxy_pass http://$engram_helix;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
+        proxy_set_header Sec-WebSocket-Protocol "bearer.$RAVEN_TOKEN_HELIX";
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_read_timeout 86400;
+        proxy_hide_header Sec-WebSocket-Protocol;
     }
 
     location /helix/ws/telemetry/public {
@@ -138,14 +186,17 @@ server {
     }
 
     location /helix/ws/pf/telemetry {
+        if ($cookie_nooscope_admin != "1") { return 401; }
         rewrite ^/helix/ws/pf(/telemetry.*)$ /ws$1 break;
         proxy_pass http://$forge_helix;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
+        proxy_set_header Sec-WebSocket-Protocol "bearer.$MORPHEUS_TOKEN_HELIX";
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_read_timeout 86400;
+        proxy_hide_header Sec-WebSocket-Protocol;
     }
 
     location /helix/ws/pf/telemetry/public {
@@ -168,11 +219,13 @@ server {
         proxy_pass http://$forge_helix;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header Authorization $http_authorization;
+        set $morpheus_auth "";
+        if ($cookie_nooscope_admin = "1") {
+            set $morpheus_auth "Bearer $MORPHEUS_TOKEN_HELIX";
+        }
+        proxy_set_header Authorization $morpheus_auth;
         proxy_read_timeout 120;
 
-        # See note on /speaker/morpheus/ above — strip upstream CORS so the
-        # gateway is the single source of truth.
         proxy_hide_header Access-Control-Allow-Origin;
         proxy_hide_header Access-Control-Allow-Headers;
         proxy_hide_header Access-Control-Allow-Methods;
@@ -186,26 +239,23 @@ server {
     # forge-web at :8200 is the admin incubator — single source of truth for
     # the scion registry and cross-scion read APIs (social-graph, anomalies,
     # etc.). It has no app-layer auth (designed to bind 127.0.0.1 on the host)
-    # so we MUST gate access here at the gateway. The check below requires any
-    # non-empty Authorization header; the SPA only sends one when the user
-    # is in admin mode (sessionStorage `nooscope_raven_token`). This is a soft
-    # gate — anyone can curl with a fake token — but it prevents drive-by
-    # access from the public web UI and matches the existing admin/public
-    # mode pattern. Real auth on the admin web is its own bean.
+    # so we MUST gate access here at the gateway. Tightened from the
+    # post-nkvw "any Authorization" soft-patch to a real Nooscope-admin
+    # cookie check; nginx then injects the forge-web admin bearer upstream.
+    # Still a soft gate (anyone can forge a cookie) but closes the drive-by
+    # path. Real session-cookie HMAC auth is the network-facing follow-up.
     location /admin/scions/ {
-        # Preflight: succeed unconditionally so the browser's actual request
-        # (which carries the Authorization header) can be gated below.
         if ($request_method = 'OPTIONS') {
             return 204;
         }
-        if ($http_authorization = "") {
+        if ($cookie_nooscope_admin != "1") {
             return 401;
         }
         rewrite ^/admin(/.*)$ $1 break;
         proxy_pass http://$forge_web;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header Authorization $http_authorization;
+        proxy_set_header Authorization "Bearer $FORGE_WEB_ADMIN_TOKEN";
         proxy_read_timeout 60;
 
         # Same CORS posture as the morpheus blocks: gateway is the single

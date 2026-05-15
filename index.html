@@ -46,22 +46,7 @@
     <button id="custom-connect-btn">Connect</button>
   </div>
 
-  <!-- Admin login dialog -->
-  <div id="admin-dialog" class="hidden">
-    <div class="admin-dialog-inner">
-      <div class="panel-header">
-        <span>Admin Login</span>
-        <button id="admin-dialog-close">&times;</button>
-      </div>
-      <div class="admin-dialog-body">
-        <label>Raven Token: <input id="admin-token-input" type="password" placeholder="paste token"></label>
-        <div class="admin-dialog-actions">
-          <button id="admin-login-btn">Login</button>
-          <button id="admin-logout-btn" class="hidden">Logout</button>
-        </div>
-      </div>
-    </div>
-  </div>
+  <!-- Admin login modal is installed by js/auth.js (Nooscope-r5kh) -->
 
   <!-- 3D graph container -->
   <div id="graph-container"></div>
@@ -90,6 +75,7 @@
 
   <!-- App modules -->
   <script src="js/config.js"></script>
+  <script src="js/auth.js"></script>
   <script src="js/stream.js"></script>
   <script src="js/graph.js"></script>
   <script src="js/effects.js"></script>

@@ -7,7 +7,9 @@
  * instead of via direct mongo queries.
  */
 
-const TOKEN_KEY = 'nooscope_raven_token';
+// Admin state is read from the shared NooscopeAuth module (Nooscope-r5kh).
+// No per-Scion or per-page token is held in browser storage — the nginx
+// admin cookie is the gate; nginx injects per-upstream bearers.
 
 // Hardcoded scion list — interim until PersonaForge-n3kx ships the JSON
 // variant of /scions. Once that lands, replace this with a fetch on page
@@ -144,37 +146,17 @@ const SOCIAL_EVENT_TYPES = new Set([
 ]);
 
 // --- Auth helpers ---
-function getToken() { return sessionStorage.getItem(TOKEN_KEY); }
-function isAdmin()  { return !!getToken(); }
-
-function updateModeUI() {
-  const badge = document.getElementById('mode-badge');
-  const adminBtn = document.getElementById('admin-toggle-btn');
-  const loginBtn = document.getElementById('admin-login-btn');
-  const logoutBtn = document.getElementById('admin-logout-btn');
-  if (isAdmin()) {
-    badge.textContent = 'ADMIN';
-    badge.className = 'mode-badge admin';
-    adminBtn.className = 'admin-btn active';
-    adminBtn.innerHTML = '&#128275;';
-    if (loginBtn) loginBtn.classList.add('hidden');
-    if (logoutBtn) logoutBtn.classList.remove('hidden');
-  } else {
-    badge.textContent = 'PUBLIC';
-    badge.className = 'mode-badge public';
-    adminBtn.className = 'admin-btn';
-    adminBtn.innerHTML = '&#128274;';
-    if (loginBtn) loginBtn.classList.remove('hidden');
-    if (logoutBtn) logoutBtn.classList.add('hidden');
-  }
-}
+function isAdmin() { return NooscopeAuth.isAdmin(); }
 
 // --- DOM init ---
 document.addEventListener('DOMContentLoaded', () => {
   populateScionSelect();
   initForceGraph();
   wireUI();
-  updateModeUI();
+  // Shared admin auth (Nooscope-r5kh). When admin state changes, refresh
+  // the page-level gate so the graph populates / clears appropriately.
+  NooscopeAuth.init();
+  NooscopeAuth.onAdminStateChange(() => applyAdminGate());
   applyAdminGate();
 });
 
@@ -251,45 +233,12 @@ function wireUI() {
   // Acquaintance panel close
   document.getElementById('acquaintance-panel-close').addEventListener('click', closeAcquaintancePanel);
 
-  // Admin dialog (mirrors index.html)
-  document.getElementById('admin-toggle-btn').addEventListener('click', toggleAdminDialog);
-  document.getElementById('admin-dialog-close').addEventListener('click', closeAdminDialog);
-  document.getElementById('admin-login-btn').addEventListener('click', adminLogin);
-  document.getElementById('admin-logout-btn').addEventListener('click', adminLogout);
-  document.getElementById('admin-dialog').addEventListener('click', e => {
-    if (e.target.id === 'admin-dialog') closeAdminDialog();
-  });
-}
-
-function toggleAdminDialog() {
-  const dialog = document.getElementById('admin-dialog');
-  dialog.classList.toggle('hidden');
-  if (!dialog.classList.contains('hidden')) {
-    document.getElementById('admin-token-input').focus();
-  }
-}
-function closeAdminDialog() {
-  document.getElementById('admin-dialog').classList.add('hidden');
-}
-function adminLogin() {
-  const input = document.getElementById('admin-token-input');
-  const token = input.value.trim();
-  if (!token) return;
-  sessionStorage.setItem(TOKEN_KEY, token);
-  input.value = '';
-  closeAdminDialog();
-  updateModeUI();
-  applyAdminGate();
-}
-function adminLogout() {
-  sessionStorage.removeItem(TOKEN_KEY);
-  closePfStream();
-  closeAdminDialog();
-  updateModeUI();
-  applyAdminGate();
+  // Admin lock-icon wiring lives in NooscopeAuth.init().
 }
 
 // Show empty/login state when not in admin mode; auto-load first scion when in.
+// Direct URL hit in public mode auto-opens the admin modal so the operator
+// doesn't have to find the lock icon (Nooscope-r5kh per-page UX).
 function applyAdminGate() {
   const empty = document.getElementById('social-empty');
   const msg = document.getElementById('empty-message');
@@ -300,6 +249,7 @@ function applyAdminGate() {
     container.classList.add('hidden');
     forceGraph.graphData({ nodes: [], links: [] });
     closePfStream();
+    NooscopeAuth.openModal();
     return;
   }
   empty.classList.add('hidden');
@@ -330,13 +280,14 @@ async function fetchSocialGraph(scionId) {
   if (!isAdmin()) return;
   const empty = document.getElementById('social-empty');
   const container = document.getElementById('social-graph-container');
-  const token = getToken();
-  const headers = { 'Authorization': `Bearer ${token}` };
+  // No browser-side Authorization header — the nooscope_admin cookie
+  // gates the /admin/scions/ route at nginx, and nginx injects the
+  // forge-web admin bearer upstream (Nooscope-r5kh).
 
   try {
     const [graphResp, anomResp] = await Promise.all([
-      fetch(`/admin/scions/${scionId}/social-graph`, { headers }),
-      fetch(`/admin/scions/${scionId}/social-graph/anomalies`, { headers }),
+      fetch(`/admin/scions/${scionId}/social-graph`),
+      fetch(`/admin/scions/${scionId}/social-graph/anomalies`),
     ]);
     if (graphResp.status === 404) {
       showEmpty(`Scion '${scionId}' not found.`);
@@ -382,8 +333,7 @@ async function fetchSocialGraph(scionId) {
 function openPfStream(scionId) {
   if (pfStream && pfStreamScionId === scionId) return;
   closePfStream();
-  const token = getToken();
-  if (!token) return;
+  if (!isAdmin()) return;
   // ADMIN_SCIONS uses "dh-speaker" / "dh-helix" but nginx routes are at
   // "/speaker" / "/helix" — strip the dh- prefix to bridge the two.
   const prefix = scionId.replace(/^dh-/, '');
@@ -392,7 +342,7 @@ function openPfStream(scionId) {
   pfStream = new TelemetryStream('pf-social', url, {
     onEvent: handlePfEvent,
     onStatus: handlePfStatus,
-  }, token);
+  });
   pfStreamScionId = scionId;
   pfStream.connect();
 }
