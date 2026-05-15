@@ -272,7 +272,10 @@ function handleEvent(source, event) {
       if (graph) graph.pulseRecall();
       break;
     case 'memory_promoted':
-      if (graph) graph.pulseRecall();
+      // Session-tail → long-term is consolidation-shaped, not recall-shaped
+      // (Nooscope-wb3m audit). Use formation, which already lives at the
+      // temporal-lobe fixture where promoted memories anchor.
+      if (graph) graph.pulseFormation();
       break;
     case 'memory_formed':
       handleMemoryFormed(event);
@@ -297,16 +300,43 @@ function handleEvent(source, event) {
     case 'pi_tool_result':
     case 'action_completed':
     case 'pi_text_delta':
+      // TODO (Nooscope-wb3m audit): pi_tool_result is outbound feedback
+      // (not raw input) and action_completed is the outbound-impulse moment
+      // (Nooscope-niac stub). Both need their own primitives, currently
+      // sharing pulseEyes as a fallback so they at least register on the
+      // brain. Promote to distinct hooks once the sub-beans land.
       if (graph) graph.pulseEyes();
       break;
     case 'backup_completed':
     case 'cron_fired':
+      // TODO (Nooscope-wb3m audit): cron_fired is an agency trigger and
+      // belongs on the cerebellum, not the brainstem. Awaiting a
+      // pulseAgency / cerebellum-fixture sub-bean.
       if (graph) graph.pulseVital();
       break;
     case 'dream_started':
     case 'dream_completed':
     case 'dream_storyboard_ready':
+      // TODO (Nooscope-wb3m audit): dreams are a state, not just a pulse.
+      // Should toggle an ambient on dream_started, release on
+      // dream_completed; pulses ride on top. Awaiting sub-bean.
       if (graph) graph.pulseCircadian();
+      break;
+    // --- Social-graph life-cycle (PersonaForge-vvsw / PR #93) ------------
+    // Every mutation to the address book pulses the social fixture so the
+    // brain registers social activity. Per Nooscope-wb3m, blocked/forgotten
+    // ideally have distinct defensive/erasure visuals — for now they reuse
+    // pulseSocialExpired ("something left the active set"), the rest reuse
+    // pulseSocialCreated ("something landed in the active set").
+    case 'acquaintance_created':
+    case 'acquaintance_updated':
+    case 'identity_linked':
+    case 'acquaintance_unblocked':
+      if (graph) graph.pulseSocialCreated();
+      break;
+    case 'acquaintance_blocked':
+    case 'acquaintance_forgotten':
+      if (graph) graph.pulseSocialExpired();
       break;
     default:
       break;
