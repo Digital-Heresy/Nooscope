@@ -5,11 +5,11 @@ status: done
 type: epic
 priority: high
 created_at: 2026-05-14T07:41:32Z
-updated_at: 2026-05-21T00:00:00Z
+updated_at: 2026-05-22T00:00:00Z
 parent: Nooscope-lm3k
 ---
 
-## Resolution (2026-05-21)
+## Resolution (2026-05-22)
 
 Shipped, mirroring the canonical pattern locked in by
 [[MindHive-tkje]]. Three artifacts:
@@ -29,6 +29,12 @@ Both workflows pin `docker/build-push-action@v6` and use
 `context: .` + `file: ./Dockerfile` (Nooscope's Dockerfile is at repo
 root). Base image (`nginxinc/nginx-unprivileged:alpine`) is multi-arch
 natively, so arm64 builds via QEMU are near-instant.
+
+**First successful build:** commit `ca9e132` → `:main` + `:main-ca9e132`,
+manifest list digest `sha256:79b159cc7990…`. Live OCI index confirmed
+to contain both `linux/amd64` (`sha256:05bb80a70925…`) and
+`linux/arm64` (`sha256:a962af699b35…`), each with a `mode=max`
+provenance attestation. End-to-end build took 59s.
 
 **Lockstep convention drafted as a proposal**, not yet ratified by the
 sibling repos: see [`docs/release-pipeline.md`](../docs/release-pipeline.md).
@@ -52,10 +58,15 @@ coordinate when they pick this up.
 
 - [x] Multi-arch buildx for nooscope image (`linux/amd64` + `linux/arm64`).
 - [x] Push to `main` → `:main` + `:main-<short-sha>` (no deploy).
-- [x] Tag push `v0.x.y` → `:v0.x.y` + `:v0.x` + `:latest`.
+      First run on `ca9e132` succeeded and registry index verified.
+- [x] Tag push `v0.x.y` → `:v0.x.y` + `:v0.x` + `:latest` (workflow
+      shipped; will fire on first NS release tag).
 - [ ] Tag protection on `v*` — operator action, documented above.
-- [x] Cross-repo PR opened against MindHive adding the `nooscope`
-      service block to `compose.prod.yml`.
+- [x] Cross-repo handoff to MindHive: `compose.prod.yml` block drafted
+      locally in MH checkout (build reset, `image:
+      ghcr.io/digital-heresy/nooscope:${NOOSCOPE_VERSION:-latest}`,
+      `pull_policy: always`) with recap blurb delivered for the MH
+      session to commit on its own cadence.
 
 ## Scope (NS side)
 
@@ -71,10 +82,10 @@ Build + publish Nooscope's container image to private GHCR with multi-arch manif
 
 ## Checklist (all routine; no separate tasks)
 
-- [ ] Multi-arch buildx for nooscope image in .github/workflows/build-main.yml
-- [ ] release.yml triggered on 'v*' tag push
-- [ ] GitHub tag protection rules on 'v*'
-- [ ] Cross-repo PR against MindHive landing the nooscope compose block
+- [x] Multi-arch buildx for nooscope image in .github/workflows/build-main.yml
+- [x] release.yml triggered on 'v*' tag push (workflow shipped; not yet exercised — no NS release tag cut)
+- [ ] GitHub tag protection rules on 'v*' (operator-side)
+- [x] Cross-repo handoff to MindHive for the nooscope compose block (local edit + blurb delivered)
 
 ## Cross-system reference
 
