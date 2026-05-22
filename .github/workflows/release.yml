@@ -1,0 +1,73 @@
+name: Release tagged image (nooscope)
+
+# Triggered by a `v*` git tag (e.g. `v0.3.1`). Produces immutable tags
+# on ghcr.io/digital-heresy/nooscope:
+#   - v0.3.1          (exact version)
+#   - v0.3            (major.minor floating pointer)
+#   - latest          (rolling pointer to newest release)
+#
+# Tag protection on `v*` (configured in GitHub repo settings) limits
+# who can push these tags, since they're immutable once published.
+#
+# Out of scope for this workflow: auto-deploy on tag push. The Pi5
+# host pulls on its own cadence. This workflow's job ends at "image
+# is in GHCR."
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/digital-heresy/nooscope
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU (arm64 emulation)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern=v{{version}}
+            type=semver,pattern=v{{major}}.{{minor}}
+            type=raw,value=latest
+
+      - name: Build and push (linux/amd64, linux/arm64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Reuse the main-build cache when possible -- a release tag is
+          # almost always cut off main, so its layers should already
+          # exist in the gha cache.
+          cache-from: |
+            type=gha,scope=nooscope-main
+            type=gha,scope=nooscope-release
+          cache-to: type=gha,scope=nooscope-release,mode=max

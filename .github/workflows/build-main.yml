@@ -1,0 +1,81 @@
+name: Build main image (nooscope)
+
+# Rolling builds of the nooscope image off main. Produces `:main` and
+# `:main-<short-sha>` tags on ghcr.io/digital-heresy/nooscope. This
+# workflow does NOT deploy -- the Pi5 host pulls on its own cadence
+# (see MindHive deploy docs).
+#
+# Image is a static-site nginx container; base is multi-arch natively
+# (nginxinc/nginx-unprivileged:alpine), so arm64 via QEMU is near-instant.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'index.html'
+      - 'dreams.html'
+      - 'social.html'
+      - 'css/**'
+      - 'js/**'
+      - 'models/**'
+      - 'nginx.conf.template'
+      - 'docker-entrypoint.sh'
+      - 'Dockerfile'
+      - '.github/workflows/build-main.yml'
+  workflow_dispatch:
+
+# Cancel an in-flight build if a newer commit lands on main before it
+# finishes. Avoids double-publishing `:main` from rapid-fire pushes.
+concurrency:
+  group: build-main-nooscope
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/digital-heresy/nooscope
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU (arm64 emulation)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Compute image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=main
+            type=sha,prefix=main-,format=short
+
+      - name: Build and push (linux/amd64, linux/arm64)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # GHA cache backend -- separate cache per ref so main and PRs
+          # don't fight. arm64 build via QEMU benefits the most.
+          cache-from: type=gha,scope=nooscope-main
+          cache-to: type=gha,scope=nooscope-main,mode=max

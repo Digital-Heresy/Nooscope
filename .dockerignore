@@ -1,0 +1,30 @@
+# Build context hygiene — keep the Docker daemon transfer small and prevent
+# accidental inclusion of repo metadata or local agent state. The Dockerfile
+# only COPYs explicit paths, so anything not listed here is already safe;
+# this file just speeds up `docker build` by not shipping the rest.
+
+# Repo metadata + CI
+.git
+.github
+.gitignore
+.beans
+.beans.yml
+
+# Local agent state (also gitignored)
+.claude
+.pi
+
+# Docs that never go in the image
+docs
+AGENTS.md
+CLAUDE.md
+README.md
+SECURITY-NOTICE-TOKEN-ROTATION.md
+
+# Local config that overrides config.example.js — never in image
+js/config.js
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.swp
