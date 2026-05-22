@@ -11,13 +11,21 @@
 // No per-Scion or per-page token is held in browser storage — the nginx
 // admin cookie is the gate; nginx injects per-upstream bearers.
 
-// Hardcoded scion list — interim until PersonaForge-n3kx ships the JSON
-// variant of /scions. Once that lands, replace this with a fetch on page
-// load that filters to live-* badge states.
-const ADMIN_SCIONS = [
-  { id: 'dh-speaker', name: 'Speaker' },
-  { id: 'dh-helix',   name: 'Helix' },
-];
+// Scion roster comes from NOOSCOPE_CONFIG.scions (Nooscope-de9m). The
+// entrypoint either populates it from forge-web's /scions endpoint
+// (prod) or from a hardcoded [speaker, helix] list (dev). Each entry
+// carries `scionId` (PF canonical id, e.g. dh-speaker) so we can call
+// PF admin-web routes that key on scion_id — the rest of social.js
+// uses the slug (which is also the URL prefix on nginx).
+//
+// Shape: { slug, id, name, badge }. `id` here is PF's scion_id so the
+// existing fetch calls (`/admin/scions/${scionId}/...`) keep working.
+const ADMIN_SCIONS = Object.entries(NOOSCOPE_CONFIG.scions).map(([slug, cfg]) => ({
+  slug,
+  id: cfg.scionId || slug,
+  name: cfg.name || (slug.charAt(0).toUpperCase() + slug.slice(1)),
+  badge: cfg.badge,
+}));
 
 // Severity → highlight color (rgba). Critical/high get the red treatment;
 // medium gets yellow; informational gets a faint blue dot. Order matches
@@ -166,9 +174,18 @@ function populateScionSelect() {
   for (const s of ADMIN_SCIONS) {
     const opt = document.createElement('option');
     opt.value = s.id;
-    opt.textContent = s.name;
+    opt.textContent = scionOptionLabel(s);
     select.appendChild(opt);
   }
+}
+
+// Same badge-aware label shape used by app.js / dreams.js. live-online
+// and live-sleeping render clean; anything else appends a status suffix.
+function scionOptionLabel(s) {
+  const badge = s.badge;
+  if (!badge || badge === 'live-online' || badge === 'live-sleeping') return s.name;
+  if (badge === 'live-offline') return `${s.name} — Offline`;
+  return `${s.name} — ${badge}`;
 }
 
 function initForceGraph() {
@@ -334,11 +351,16 @@ function openPfStream(scionId) {
   if (pfStream && pfStreamScionId === scionId) return;
   closePfStream();
   if (!isAdmin()) return;
-  // ADMIN_SCIONS uses "dh-speaker" / "dh-helix" but nginx routes are at
-  // "/speaker" / "/helix" — strip the dh- prefix to bridge the two.
-  const prefix = scionId.replace(/^dh-/, '');
+  // PF's scion_id ("dh-speaker") and the nginx route prefix ("/speaker")
+  // diverge by the slug field — Nooscope-de9m carries it through config.js
+  // so we can look it up without baking in a prefix-strip rule.
+  const match = ADMIN_SCIONS.find(s => s.id === scionId);
+  if (!match) {
+    console.warn(`[social] no slug mapping for scion_id "${scionId}", skipping PF stream`);
+    return;
+  }
   const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const url = `${protocol}//${location.host}/${prefix}/ws/pf/telemetry`;
+  const url = `${protocol}//${location.host}/${match.slug}/ws/pf/telemetry`;
   pfStream = new TelemetryStream('pf-social', url, {
     onEvent: handlePfEvent,
     onStatus: handlePfStatus,

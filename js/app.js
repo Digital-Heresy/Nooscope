@@ -9,6 +9,21 @@ const SCION_PRESETS = NOOSCOPE_CONFIG.scions;
 // existing call sites stay readable.
 const isAdmin = () => NooscopeAuth.isAdmin();
 
+// Build a dropdown label from a Scion config entry. `name` is the
+// PF-supplied display name when available (Nooscope-de9m); falls back to
+// title-cased slug for older configs. `badge` is the PF live-state
+// marker — `live-online` / `live-sleeping` render clean; anything else
+// appends a status suffix (`— Offline` for `live-offline`, `— {badge}`
+// otherwise). Dev mode keeps the port hint in parens.
+function buildScionLabel(slug, cfg) {
+  const display = cfg.name || (slug.charAt(0).toUpperCase() + slug.slice(1));
+  const base = cfg.host ? display : `${display} (${cfg.thriden}/${cfg.pf})`;
+  const badge = cfg.badge;
+  if (!badge || badge === 'live-online' || badge === 'live-sleeping') return base;
+  if (badge === 'live-offline') return `${base} — Offline`;
+  return `${base} — ${badge}`;
+}
+
 // ---- State ----
 let graph = null;
 let eventLog = null;
@@ -39,14 +54,16 @@ document.addEventListener('DOMContentLoaded', () => {
   };
   graph.onSentinelSelect = (meta) => infoPanel.showSentinel(meta);
 
-  // Populate scion dropdown from config
+  // Populate scion dropdown from config. Labels are name + badge-aware
+  // suffix (live-* states normal; anything else gets an inline status
+  // marker). Native <option> styling is unreliable cross-browser, so
+  // state is conveyed in text rather than colour.
   const scionSelect = document.getElementById('scion-select');
   const customOpt = scionSelect.querySelector('option[value="custom"]');
-  for (const [name, cfg] of Object.entries(SCION_PRESETS)) {
+  for (const [slug, cfg] of Object.entries(SCION_PRESETS)) {
     const opt = document.createElement('option');
-    opt.value = name;
-    const label = name.charAt(0).toUpperCase() + name.slice(1);
-    opt.textContent = cfg.host ? label : `${label} (${cfg.thriden}/${cfg.pf})`;
+    opt.value = slug;
+    opt.textContent = buildScionLabel(slug, cfg);
     scionSelect.insertBefore(opt, customOpt);
   }
   scionSelect.value = Object.keys(SCION_PRESETS)[0] || 'custom';
@@ -264,37 +281,53 @@ function handleEvent(source, event) {
       if (graph) graph.pulseFormation();
       break;
     case 'message_received':
-    case 'pi_tool_result':
-    case 'action_completed':
     case 'pi_text_delta':
-      // TODO (Nooscope-wb3m audit): pi_tool_result is outbound feedback
-      // (not raw input) and action_completed is the outbound-impulse moment
-      // (Nooscope-niac stub). Both need their own primitives, currently
-      // sharing pulseEyes as a fallback so they at least register on the
-      // brain. Promote to distinct hooks once the sub-beans land.
+    case 'pi_tool_result':
+      // External input — eyes fixture. pi_tool_result is technically
+      // outbound-feedback-returning-inbound; for now it shares pulseEyes
+      // with raw input. Separating it is a future sub-bean (not cb7r).
       if (graph) graph.pulseEyes();
       break;
-    case 'backup_completed':
+    case 'action_completed':
     case 'cron_fired':
-      // TODO (Nooscope-wb3m audit): cron_fired is an agency trigger and
-      // belongs on the cerebellum, not the brainstem. Awaiting a
-      // pulseAgency / cerebellum-fixture sub-bean.
+      // Agency — self-initiated action at the cerebellum. cron_fired is
+      // a scheduled-self trigger; action_completed is the outbound impulse
+      // crossing the threshold into the world (Nooscope-cb7r).
+      if (graph) graph.pulseAgency();
+      break;
+    case 'backup_completed':
+      // System housekeeping — brainstem. Vital fires alone now that
+      // cron_fired moved to agency (Nooscope-cb7r).
       if (graph) graph.pulseVital();
       break;
     case 'dream_started':
+      // Enter DREAMING state (Nooscope-da2m). Wireframe dims, violet
+      // ambient halo lights up, thalamic sentinel holds a soft glow.
+      // The pulse rides on top of the state as the transient marker.
+      if (graph) {
+        graph.setDreamingState(true);
+        graph.pulseCircadian();
+      }
+      break;
     case 'dream_completed':
+      // Release DREAMING state. If the dream mutated the brain
+      // (payload.mutations > 0 || soul_proposals > 0), flash to signal
+      // "the brain changed" — operator cue that a review is pending.
+      if (graph) {
+        graph.setDreamingState(false);
+        graph.pulseCircadian();
+        const p = event.payload || {};
+        if ((p.mutations && p.mutations > 0) || (p.soul_proposals && p.soul_proposals > 0)) {
+          graph.flashConsolidation();
+        }
+      }
+      break;
     case 'dream_storyboard_ready':
-      // TODO (Nooscope-wb3m audit): dreams are a state, not just a pulse.
-      // Should toggle an ambient on dream_started, release on
-      // dream_completed; pulses ride on top. Awaiting sub-bean.
+      // Fires during the dream as the storyboard renders — transient
+      // pulse only, doesn't touch the dreaming state.
       if (graph) graph.pulseCircadian();
       break;
     // --- Social-graph life-cycle (PersonaForge-vvsw / PR #93) ------------
-    // Every mutation to the address book pulses the social fixture so the
-    // brain registers social activity. Per Nooscope-wb3m, blocked/forgotten
-    // ideally have distinct defensive/erasure visuals — for now they reuse
-    // pulseSocialExpired ("something left the active set"), the rest reuse
-    // pulseSocialCreated ("something landed in the active set").
     case 'acquaintance_created':
     case 'acquaintance_updated':
     case 'identity_linked':
@@ -302,8 +335,10 @@ function handleEvent(source, event) {
       if (graph) graph.pulseSocialCreated();
       break;
     case 'acquaintance_blocked':
+      if (graph) graph.pulseSocialBlocked();
+      break;
     case 'acquaintance_forgotten':
-      if (graph) graph.pulseSocialExpired();
+      if (graph) graph.pulseSocialForgotten();
       break;
     default:
       break;

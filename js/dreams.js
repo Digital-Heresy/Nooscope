@@ -5,6 +5,20 @@
 
 const SCION_PRESETS = NOOSCOPE_CONFIG.scions;
 
+// Build a dropdown label from a Scion config entry. PF-supplied `name`
+// preferred; falls back to title-cased slug. `badge` from PF drives an
+// optional status suffix (`— Offline` for `live-offline`, `— {badge}`
+// for anything other than live-online / live-sleeping). Dreams.js only
+// surfaces the PF port hint in dev mode (Thriden isn't relevant here).
+function buildScionLabel(slug, cfg) {
+  const display = cfg.name || (slug.charAt(0).toUpperCase() + slug.slice(1));
+  const base = cfg.pfPrefix ? display : `${display} (${cfg.pf || cfg.host || '?'})`;
+  const badge = cfg.badge;
+  if (!badge || badge === 'live-online' || badge === 'live-sleeping') return base;
+  if (badge === 'live-offline') return `${base} — Offline`;
+  return `${base} — ${badge}`;
+}
+
 // ---- State ----
 // Post Nooscope-r5kh: no per-Scion morpheus token is stored anywhere on
 // the browser. Public requests reach Morpheus unauthenticated; admin
@@ -34,14 +48,15 @@ const PUBLISH_PLATFORMS = [
 // ---- Init ----
 document.addEventListener('DOMContentLoaded', () => {
 
-  // Populate scion dropdown
+  // Populate scion dropdown. Labels are name + badge-aware suffix
+  // (Nooscope-de9m). Native <option> styling is unreliable cross-
+  // browser, so badge state is conveyed in text rather than colour.
   const scionSelect = document.getElementById('scion-select');
   const customOpt = scionSelect.querySelector('option[value="custom"]');
-  for (const [name, cfg] of Object.entries(SCION_PRESETS)) {
+  for (const [slug, cfg] of Object.entries(SCION_PRESETS)) {
     const opt = document.createElement('option');
-    opt.value = name;
-    const displayName = name.charAt(0).toUpperCase() + name.slice(1);
-    opt.textContent = cfg.pfPrefix ? displayName : `${displayName} (${cfg.pf || cfg.host || '?'})`;
+    opt.value = slug;
+    opt.textContent = buildScionLabel(slug, cfg);
     scionSelect.insertBefore(opt, customOpt);
   }
   scionSelect.value = Object.keys(SCION_PRESETS)[0] || 'custom';

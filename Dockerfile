@@ -13,14 +13,19 @@ COPY models/ /usr/share/nginx/html/models/
 # Scion tokens into it at container start (Nooscope-r5kh).
 COPY nginx.conf.template /etc/nginx/conf.d/default.conf.template
 
-# Entrypoint generates config.js from env vars and materializes the nginx
-# config from its template before nginx starts. gettext provides envsubst;
-# the upstream image doesn't ship it. `curl` is removed because alpine 3.23
-# still ships curl <8.19 (CVE-2026-6276/5773/3805) and nothing in this
-# image calls it -- entrypoint uses BusyBox printf/sha256sum/envsubst, and
-# nginx itself doesn't need it. See MindHive docs/cve-triage-2026-05.md.
+# Entrypoint generates config.js + nginx config from env / forge-web's
+# /scions registry (Nooscope-de9m). Tooling:
+#   - gettext (envsubst) — substitutes per-Scion bearer tokens into the
+#     rendered nginx config without touching nginx's own `$variable`
+#     references. The upstream image doesn't ship it.
+#   - jq — parses the JSON shape returned by forge-web's /scions endpoint
+#     so the entrypoint can loop over the discovered Scion roster.
+# Fetching /scions uses BusyBox `wget` (already in the base image), NOT
+# curl. f624b74 dropped curl to clear three High CVEs (alpine 3.23
+# curl <8.19); we keep that posture and use wget --header for the
+# Accept: application/json call.
 COPY docker-entrypoint.sh /docker-entrypoint.sh
-RUN apk add --no-cache gettext \
+RUN apk add --no-cache gettext jq \
     && apk del curl \
     && chmod +x /docker-entrypoint.sh \
     && chown -R nginx:nginx /usr/share/nginx/html \
