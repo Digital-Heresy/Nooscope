@@ -102,15 +102,17 @@ if [ -n "$NOOSCOPE_HOST" ]; then
     # that the admin-web API expects in /scions/{scion_id}/... URLs;
     # social.js reads it from config.js to call those routes (the slug
     # alone wouldn't address the PF API).
+    #
+    # A zero-row response is *valid* — a fresh Thriden deploy comes up
+    # with no Scions forged yet. We render an empty selector, no per-
+    # Scion nginx blocks, /healthz reports scions=0, and the operator
+    # forges the first Scion on PF whenever they're ready (next
+    # container restart picks it up). Only forge-web *unreachable*
+    # fails the container start, not "reachable and empty."
     printf '%s' "$SCIONS_JSON" \
         | jq -r '.scions[] | select(.engram_bound == true)
                 | [.scion_slug, .name, .badge, .scion_id] | @tsv' \
         > "$SCION_TSV"
-
-    if [ ! -s "$SCION_TSV" ]; then
-        echo "FATAL: /scions returned zero engram-bound Scions. Refusing to start with an empty selector." >&2
-        exit 1
-    fi
 else
     cat > "$SCION_TSV" <<'EOF'
 speaker	Speaker	live-online	dh-speaker
