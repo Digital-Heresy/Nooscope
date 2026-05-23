@@ -56,16 +56,26 @@
     // Path=/ so every nginx location sees it. Session-scoped (no
     // Max-Age/Expires) so closing the tab logs you out — matches
     // sessionStorage's lifetime, which is the source of truth.
-    document.cookie = `${COOKIE_KEY}=1; Path=/; SameSite=Strict`;
+    // `Secure` only when actually served over HTTPS — plain-HTTP
+    // localhost dev would silently fail to set the cookie otherwise
+    // (Nooscope-03z5 deferred touch, landed for the noo.thriden.dev
+    // deploy posture).
+    document.cookie = `${COOKIE_KEY}=1; Path=/; SameSite=Strict${cookieSecureAttr()}`;
     notify(true);
     return { ok: true };
   }
 
   function logout() {
     sessionStorage.removeItem(SESSION_KEY);
-    // Expire the cookie immediately.
-    document.cookie = `${COOKIE_KEY}=; Path=/; Max-Age=0; SameSite=Strict`;
+    // Expire the cookie immediately. Mirror the Secure flag from the
+    // set side so the browser matches the cookie identity correctly
+    // before applying Max-Age=0.
+    document.cookie = `${COOKIE_KEY}=; Path=/; Max-Age=0; SameSite=Strict${cookieSecureAttr()}`;
     notify(false);
+  }
+
+  function cookieSecureAttr() {
+    return location.protocol === 'https:' ? '; Secure' : '';
   }
 
   function onAdminStateChange(cb) {
