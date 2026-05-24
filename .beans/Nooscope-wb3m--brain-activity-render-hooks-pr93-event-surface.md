@@ -1,13 +1,38 @@
 ---
 # Nooscope-wb3m
 title: Brain-activity render hooks for the post-PR #93 telemetry event surface
-status: todo
+status: done
 type: feature
 priority: normal
 parent: Nooscope-mbfj
 created_at: 2026-05-11T00:00:00Z
-updated_at: 2026-05-11T00:00:00Z
+updated_at: 2026-05-15T00:00:00Z
 ---
+
+## Resolution (2026-05-15)
+
+Closed as **audit + plumbing done**. The mapping deliverable (this
+document) is the source-of-truth inventory; the bare-minimum hook
+wiring is in `app.js:handleEvent` — every PR #93 event hits a `case`,
+nothing falls through. `dream_storyboard_ready` was confirmed still
+emitted by PF (`forge/dreams/subsystem.py`) and kept.
+
+Distinct visual primitives flagged in the inventory are spun out to
+sibling sub-beans under [[Nooscope-mbfj]]:
+
+- [[Nooscope-cb7r]] — `pulseAgency` / cerebellum fixture for
+  `cron_fired` and `action_completed` (replaces today's shared
+  `pulseVital` / `pulseEyes` fallbacks)
+- [[Nooscope-bf3x]] — distinct visuals for `acquaintance_blocked`
+  (defensive red/grey + brain-wide damping) and `acquaintance_forgotten`
+  (erasure animation)
+- [[Nooscope-da2m]] — dream ambient state: toggle on `dream_started`,
+  release on `dream_completed`; pulses ride on top
+
+`app.js` carries three `Nooscope-wb3m audit` TODO comments at the
+fallback cases — those resolve naturally as the sub-beans above land.
+
+## Original scope
 
 PersonaForge PR #93 (PersonaForge-vvsw) re-inventoried `/ws/telemetry` and
 added 6 social-graph life-cycle events to the existing cognitive surface.

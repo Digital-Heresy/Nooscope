@@ -1,7 +1,7 @@
 ---
 # Nooscope-nkvw
 title: Social-graph visualization — render PF acquaintance graph with anomaly highlights
-status: completed
+status: done
 type: feature
 created_at: 2026-05-10T06:13:55Z
 updated_at: 2026-05-15T00:00:00Z

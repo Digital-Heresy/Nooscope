@@ -1,7 +1,7 @@
 ---
 # Nooscope-r5kh
 title: Nooscope-level admin login (replaces per-Scion raven token UX)
-status: completed
+status: done
 type: feature
 priority: high
 created_at: 2026-05-10T00:00:00Z

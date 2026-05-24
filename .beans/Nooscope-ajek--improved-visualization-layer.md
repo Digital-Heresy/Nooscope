@@ -1,7 +1,7 @@
 ---
 # Nooscope-ajek
 title: Improved Visualization Layer
-status: completed
+status: done
 type: milestone
 priority: normal
 created_at: 2026-04-05T00:00:00Z

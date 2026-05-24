@@ -1,7 +1,7 @@
 ---
 # Nooscope-gdgh
 title: 'Backend: Tiered WebSocket Streams'
-status: completed
+status: done
 type: feature
 priority: high
 created_at: 2026-03-31T09:18:30Z

@@ -42,7 +42,7 @@ From Thriden/Engram: `snapshot`, `node_activated`, `node_created`, `edge_reinfor
 
 From PersonaForge: `recall_fired`, `memory_promoted`, `memory_formed`, `working_memory_updated`, `session_created`, `session_expired`, `acquaintance_created`, `acquaintance_updated`, `acquaintance_blocked`, `acquaintance_unblocked`, `acquaintance_forgotten`, `identity_linked`, `message_received`, `pi_text_delta`, `pi_tool_result`, `action_completed`, `dream_started`, `dream_completed`, `dream_storyboard_ready`, `backup_completed`, `cron_fired`.
 
-`memory_promoted` pulses the formation sentinel (consolidation-shaped), not recall. Acquaintance/identity events pulse the social sentinels — created/updated/unblocked/identity_linked on Social (Created), blocked/forgotten on Social (Expired).
+`memory_promoted` pulses the formation sentinel (consolidation-shaped), not recall. Acquaintance/identity events pulse the social fixtures: `acquaintance_created` / `acquaintance_updated` / `acquaintance_unblocked` / `identity_linked` on Social (Created); `acquaintance_blocked` on a dedicated **Social (Blocked)** midline fixture (red, with a brief brain-wide attention dim); `acquaintance_forgotten` on a dedicated **Social (Forgotten)** midline fixture (grey, bell-curve erasure fade). These two are the only PF sentinels that *don't* use the universal `0xff8c00` orange — the palette break is intentional (Nooscope-bf3x): blocked = defensive, forgotten = erasure, neither reads as "session ending naturally".
 
 Dispatched by `handleEvent()` in `js/app.js`, which switches on `event.type` and calls the matching `MemoryGraph` method.
 

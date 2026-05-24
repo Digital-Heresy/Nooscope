@@ -1,7 +1,7 @@
 ---
 # Nooscope-wr3i
 title: Morpheus — Dream Storyboard Viewer (dreams.html)
-status: completed
+status: done
 type: feature
 priority: high
 created_at: 2026-04-06T05:20:40Z

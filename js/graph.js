@@ -263,6 +263,16 @@ class MemoryGraph {
     this._formationScale = 0;
     this._circadianDot = null;   // Thalamus — dream events
     this._circadianScale = 0;
+    this._agencyDot = null;      // Cerebellum — cron_fired, action_completed
+    this._agencyScale = 0;
+    // Defensive/erasure social fixtures (Nooscope-bf3x). Distinct visual
+    // language from the normal social hemi pulses: blocked = red + brief
+    // brain-wide attention dim, forgotten = grey bell-curve fade (erasure).
+    this._socialBlocked = null;          // Frontal midline — acquaintance_blocked
+    this._socialBlockedScale = 0;
+    this._blockDampUntil = 0;            // epoch ms — dim everything else while > now
+    this._socialForgotten = null;        // Frontal midline — acquaintance_forgotten
+    this._socialForgottenAnimUntil = 0;  // epoch ms — bell-curve envelope endpoint
     // Ambient session halo — brain-shaped additive glow (one mesh per
     // hemisphere, built from the brain OBJ geometry) lit while the scion
     // is cognitively active. Driven by an "active until" timestamp that
@@ -271,6 +281,18 @@ class MemoryGraph {
     this._ambientActiveUntil = 0;   // epoch ms — halo lit while now < this
     this._ambientCurrentOpacity = 0;
     this._ambientPhase = 0;
+    // Dreaming ambient state (Nooscope-da2m) — separate from the session
+    // halo. A dream is a *state* the scion is in: brain wireframe dims,
+    // a violet additive halo breathes slowly, and the thalamic sentinel
+    // holds a persistent soft glow until release. Safety timer bounds the
+    // state at 60min if no dream_completed arrives.
+    this._dreamHaloMeshes = [];
+    this._dreamingActiveUntil = 0;  // epoch ms — also doubles as safety timer
+    this._dreamHaloOpacity = 0;
+    this._dreamHaloPhase = 0;
+    this._consolidationFlashUntil = 0;  // brief brain-wide flash on mutated dreams
+    this._brainWireframeMeshes = [];  // refs to dim during dreaming
+    this._brainWireframeBaseOpacity = 0.15;
     // Working memory set — nodes currently "in the scion's head", derived
     // from the most recent recall_fired event. Gold ring drawn around each.
     this.workingMemorySet = new Set();
@@ -286,11 +308,14 @@ class MemoryGraph {
 
     // Sentinel metadata — keyed by mesh name
     this._sentinelMeta = {
-      'nerve-left':      { label: 'Left Eye (I/O)', category: 'Input + Agency', region: 'Eyes', events: ['message_received', 'pi_text_delta', 'pi_tool_result', 'action_completed'], description: 'All external I/O — inbound messages, Pi streaming output, tool calls, and action completions. The eyes see everything.' },
-      'nerve-right':     { label: 'Right Eye (I/O)', category: 'Input + Agency', region: 'Eyes', events: ['message_received', 'pi_text_delta', 'pi_tool_result', 'action_completed'], description: 'All external I/O — inbound messages, Pi streaming output, tool calls, and action completions. The eyes see everything.' },
-      'vital':           { label: 'Brainstem (Vital)', category: 'Vital', region: 'Brainstem', events: ['backup_completed', 'cron_fired'], description: 'Autonomic maintenance — housekeeping and scheduled tasks. Pulses on backups and cron jobs.' },
+      'nerve-left':      { label: 'Left Eye (Input)', category: 'Input', region: 'Eyes', events: ['message_received', 'pi_text_delta', 'pi_tool_result'], description: 'External input — inbound messages, Pi streaming output, tool results landing back at the Scion.' },
+      'nerve-right':     { label: 'Right Eye (Input)', category: 'Input', region: 'Eyes', events: ['message_received', 'pi_text_delta', 'pi_tool_result'], description: 'External input — inbound messages, Pi streaming output, tool results landing back at the Scion.' },
+      'vital':           { label: 'Brainstem (Vital)', category: 'Vital', region: 'Brainstem', events: ['backup_completed'], description: 'Autonomic maintenance — system housekeeping. Pulses on backup completion.' },
+      'agency':          { label: 'Cerebellum (Agency)', category: 'Agency', region: 'Cerebellum', events: ['cron_fired', 'action_completed'], description: 'Self-initiated action — the Scion deciding to act. Pulses on scheduled-self triggers and outbound action completion.' },
       'social-created':  { label: 'Session Open (Social)', category: 'Social', region: 'Frontal Lobe (L)', events: ['session_created'], description: 'A new conversation session has started. The brain is engaging with the world.' },
       'social-expired':  { label: 'Session Close (Social)', category: 'Social', region: 'Frontal Lobe (R)', events: ['session_expired'], description: 'A conversation session has ended. The brain is disengaging.' },
+      'social-blocked':  { label: 'Acquaintance Blocked (Social)', category: 'Social', region: 'Frontal Lobe (mid)', events: ['acquaintance_blocked'], description: 'Defensive response — the Scion blocked a person. Briefly dims the rest of the brain to signal heightened attention.' },
+      'social-forgotten':{ label: 'Acquaintance Forgotten (Social)', category: 'Social', region: 'Frontal Lobe (mid)', events: ['acquaintance_forgotten'], description: 'Erasure — a person leaves the active model entirely. Quiet bell-curve fade rather than a pulse.' },
       'recall':          { label: 'Recall', category: 'Recall', region: 'Temporal Lobe', events: ['recall_fired', 'memory_promoted'], description: 'Memory retrieval — the brain searching and finding existing traces. Fires on every query.' },
       'formation':       { label: 'Formation', category: 'Formation', region: 'Temporal Lobe', events: ['memory_formed', 'working_memory_updated'], description: 'Memory encoding — new memories crystallizing into the graph. Working memory buffer updates.' },
       'circadian':       { label: 'Circadian', category: 'Circadian', region: 'Thalamus', events: ['dream_started', 'dream_completed', 'dream_storyboard_ready'], description: 'Sleep/wake rhythm — dream cycles and consolidation. The gatekeeper between waking and sleeping states.' },
@@ -533,7 +558,9 @@ class MemoryGraph {
 
   _getSentinelMeshes() {
     return [this._nerveLeft, this._nerveRight, this._vitalDot,
+            this._agencyDot,
             this._socialCreated, this._socialExpired,
+            this._socialBlocked, this._socialForgotten,
             this._recallDot, this._formationDot,
             this._circadianDot].filter(Boolean);
   }
@@ -586,17 +613,20 @@ class MemoryGraph {
         const BRAIN_OFFSET = { x: 0, y: 5, z: -10 };
 
         this._ambientHaloMeshes = [];
+        this._dreamHaloMeshes = [];
+        this._brainWireframeMeshes = [];
         for (const obj of objects) {
           const isRightHemi = obj.name.includes('rh');
           const material = new THREE.MeshBasicMaterial({
             color: isRightHemi ? 0xff4a9e : 0x4a9eff,
             wireframe: true,
             transparent: true,
-            opacity: 0.15,
+            opacity: this._brainWireframeBaseOpacity,
             depthWrite: false,
           });
           const mesh = new THREE.Mesh(obj.geometry, material);
           group.add(mesh);
+          this._brainWireframeMeshes.push(mesh);
 
           // Ambient halo — share the exact brain geometry, solid additive
           // glow on the inside of a slightly inflated copy so the aura
@@ -614,6 +644,23 @@ class MemoryGraph {
           halo.scale.set(1.05, 1.05, 1.05);
           group.add(halo);
           this._ambientHaloMeshes.push(halo);
+
+          // Dream halo — parallel to the session halo but a deep violet
+          // palette ("the brain is in a different state"), slightly less
+          // inflated to avoid z-fighting with the session halo when both
+          // happen to be lit at once.
+          const dreamMat = new THREE.MeshBasicMaterial({
+            color: 0x6a3a9c,
+            transparent: true,
+            opacity: 0,
+            blending: THREE.AdditiveBlending,
+            depthWrite: false,
+            side: THREE.BackSide,
+          });
+          const dreamHalo = new THREE.Mesh(obj.geometry, dreamMat);
+          dreamHalo.scale.set(1.03, 1.03, 1.03);
+          group.add(dreamHalo);
+          this._dreamHaloMeshes.push(dreamHalo);
         }
 
         // Eye fixtures (local coordinates — group.scale handles the rest)
@@ -653,14 +700,20 @@ class MemoryGraph {
         group.add(new THREE.Line(rightNerveGeom, rightNerveMat));
 
         // ---- PF Sentinel dots ----
-        // All PF dots are orange (0xff8c00). Unit sphere geometry, scaled dynamically.
+        // Standard PF dots are orange (0xff8c00). The defensive/erasure social
+        // fixtures (Nooscope-bf3x) intentionally break that palette to convey
+        // a different semantic — red for blocked, grey for forgotten. Color
+        // is an opt-in parameter on makeSentinel so the orange default still
+        // governs the rest.
         const PF_COLOR = 0xff8c00;
+        const SOCIAL_BLOCKED_COLOR = 0xc02828;    // defensive red
+        const SOCIAL_FORGOTTEN_COLOR = 0x888888;  // erasure grey
         const sentinelGeom = new THREE.SphereGeometry(1, 12, 8);
         const SENTINEL_REST = 0.06;
 
-        function makeSentinel(name, pos) {
+        function makeSentinel(name, pos, color = PF_COLOR) {
           const mat = new THREE.MeshBasicMaterial({
-            color: PF_COLOR, transparent: true, opacity: 0.9,
+            color, transparent: true, opacity: 0.9,
           });
           const mesh = new THREE.Mesh(sentinelGeom, mat);
           mesh.position.set(pos.x, pos.y, pos.z);
@@ -690,6 +743,15 @@ class MemoryGraph {
         this._socialExpired = makeSentinel('social-expired', { x: 1.0, y: 0.8, z: 1.8 });
         group.add(this._socialExpired);
         this._socialExpiredScale = 0;
+        // social-blocked → midline front-upper, between/above the hemi pair.
+        // Red palette + brief brain-wide attention dim (Nooscope-bf3x).
+        this._socialBlocked = makeSentinel('social-blocked', { x: 0, y: 1.1, z: 1.8 }, SOCIAL_BLOCKED_COLOR);
+        group.add(this._socialBlocked);
+        this._socialBlockedScale = 0;
+        // social-forgotten → midline, slightly forward + below blocked.
+        // Grey palette + bell-curve fade animation (Nooscope-bf3x).
+        this._socialForgotten = makeSentinel('social-forgotten', { x: 0, y: 0.9, z: 2.0 }, SOCIAL_FORGOTTEN_COLOR);
+        group.add(this._socialForgotten);
 
         // Recall — temporal seam, forward (pulse on recall_fired, memory_promoted)
         this._recallDot = makeSentinel('recall', { x: 0, y: -0.4, z: 0.8 });
@@ -705,6 +767,14 @@ class MemoryGraph {
         this._circadianDot = makeSentinel('circadian', { x: 0, y: -0.8, z: -1.5 });
         group.add(this._circadianDot);
         this._circadianScale = 0;
+
+        // Agency — cerebellum, back-low rear face, distinct from both
+        // brainstem (further down/back) and thalamus (deep center).
+        // Pulses on cron_fired (scheduled-self triggers) and action_completed
+        // (outbound action crossing the threshold into the world).
+        this._agencyDot = makeSentinel('agency', { x: 0, y: -1.0, z: -2.0 });
+        group.add(this._agencyDot);
+        this._agencyScale = 0;
 
         // Apply scale and offset
         group.scale.set(BRAIN_SCALE, BRAIN_SCALE, BRAIN_SCALE);
@@ -824,6 +894,26 @@ class MemoryGraph {
     this._ambientActiveUntil = 0;
   }
 
+  // Enter / leave the dreaming state (Nooscope-da2m). Active state dims
+  // the brain wireframe, lights a violet ambient halo, and floors the
+  // thalamic sentinel scale so it holds a persistent soft glow. The
+  // bound on _dreamingActiveUntil doubles as a safety timer — if
+  // dream_completed never arrives, the state self-releases after 60min.
+  setDreamingState(active) {
+    if (active) {
+      this._dreamingActiveUntil = Date.now() + 60 * 60 * 1000;
+    } else {
+      this._dreamingActiveUntil = 0;
+    }
+  }
+
+  // Brief brain-wide brightness spike — fired by dream_completed when
+  // payload.mutations > 0 or soul_proposals > 0, signaling "the brain
+  // changed during the dream." Operator cue that a review is pending.
+  flashConsolidation() {
+    this._consolidationFlashUntil = Date.now() + 800;
+  }
+
   pulseVital() {
     this._vitalScale = Math.min(1.0, this._vitalScale + 0.5);
     this._fireSentinel('vital', this._vitalDot);
@@ -852,6 +942,30 @@ class MemoryGraph {
   pulseCircadian() {
     this._circadianScale = Math.min(1.0, this._circadianScale + 0.5);
     this._fireSentinel('circadian', this._circadianDot);
+  }
+
+  pulseAgency() {
+    this._agencyScale = Math.min(1.0, this._agencyScale + 0.4);
+    this._fireSentinel('agency', this._agencyDot);
+  }
+
+  // Defensive pulse — the Scion blocked a person. Same stack-and-decay
+  // shape as the other sentinels for the dot itself, but additionally arms
+  // a brief brain-wide attention dim so the operator's eye snaps to the
+  // blocked fixture rather than registering "generic social activity".
+  pulseSocialBlocked() {
+    this._socialBlockedScale = Math.min(1.0, this._socialBlockedScale + 0.45);
+    this._blockDampUntil = Date.now() + 300;
+    this._fireSentinel('social-blocked', this._socialBlocked);
+  }
+
+  // Erasure animation — a quieter event than blocked, but distinct from a
+  // session-end pulse. Bell-curve envelope (rise + fall in ~600ms), no
+  // brain-wide damping. The animate loop reads _socialForgottenAnimUntil to
+  // drive scale/opacity; nothing else needs to participate.
+  pulseSocialForgotten() {
+    this._socialForgottenAnimUntil = Date.now() + 600;
+    this._fireSentinel('social-forgotten', this._socialForgotten);
   }
 
   _tuneForces() {
@@ -1051,11 +1165,59 @@ class MemoryGraph {
     // Social
     this._socialCreatedScale = decaySentinel(this._socialCreated, this._socialCreatedScale);
     this._socialExpiredScale = decaySentinel(this._socialExpired, this._socialExpiredScale);
+    // Defensive — same stack-and-decay shape as the rest (Nooscope-bf3x).
+    this._socialBlockedScale = decaySentinel(this._socialBlocked, this._socialBlockedScale);
+    // Erasure — bell-curve envelope. Distinct from decaySentinel's
+    // sharp-rise-then-decay because forgetting is a *quiet* event: a brief
+    // symbolic blip rather than a percussive pulse. Peaks at ~half the
+    // normal sentinel scale, then settles back to the resting dot.
+    if (this._socialForgotten) {
+      const FORGOTTEN_DUR = 600;
+      const remaining = this._socialForgottenAnimUntil - now;
+      if (remaining > 0) {
+        const phase = 1 - remaining / FORGOTTEN_DUR;       // 0 → 1
+        const intensity = Math.sin(phase * Math.PI);        // 0 → 1 → 0
+        const peakScale = (SENTINEL_REST + SENTINEL_MAX) * 0.5; // ~half the normal max
+        const radius = SENTINEL_REST + (peakScale - SENTINEL_REST) * intensity;
+        this._socialForgotten.scale.setScalar(radius);
+        this._socialForgotten.material.opacity = 0.4 + 0.5 * intensity;
+      } else {
+        this._socialForgotten.scale.setScalar(SENTINEL_REST);
+        this._socialForgotten.material.opacity = 0.5;
+      }
+    }
     // Recall & Formation
     this._recallScale = decaySentinel(this._recallDot, this._recallScale);
     this._formationScale = decaySentinel(this._formationDot, this._formationScale);
+    // Dreaming state — floor the circadian sentinel before decay so
+    // the thalamic glow holds while the scion is in DREAMING. The
+    // breathe modulation gives natural movement; transient pulses from
+    // dream_started/completed/storyboard_ready ride on top.
+    const dreaming = now < this._dreamingActiveUntil;
+    if (dreaming) {
+      const dreamFloor = 0.3 + 0.1 * Math.sin(now / 2000);
+      if (this._circadianScale < dreamFloor) this._circadianScale = dreamFloor;
+    }
     // Circadian
     this._circadianScale = decaySentinel(this._circadianDot, this._circadianScale);
+    // Agency
+    this._agencyScale = decaySentinel(this._agencyDot, this._agencyScale);
+
+    // Brain-wide attention dim during a block (Nooscope-bf3x). Sharp drop
+    // on fire (0.4x), eases back to 1.0 across the 300ms window. Applied
+    // post-decay to every sentinel except social-blocked itself, and woven
+    // into the wireframe target below. The "moment of heightened defensive
+    // attention" comes from everything-but-blocked momentarily darkening.
+    let blockDamp = 1.0;
+    if (now < this._blockDampUntil) {
+      const remaining = (this._blockDampUntil - now) / 300; // 1 → 0
+      blockDamp = 0.4 + 0.6 * (1 - remaining);              // 0.4 → 1.0
+    }
+    if (blockDamp < 1.0) {
+      for (const m of this._getSentinelMeshes()) {
+        if (m.name !== 'social-blocked') m.material.opacity *= blockDamp;
+      }
+    }
 
     // Ambient session halo — target opacity from "active until" timestamp,
     // eased, modulated with a slow breathing pulse when active.
@@ -1067,6 +1229,40 @@ class MemoryGraph {
       const breathe = 0.75 + 0.25 * Math.sin(this._ambientPhase); // 0.5..1.0
       const opacity = this._ambientCurrentOpacity * breathe;
       for (const m of this._ambientHaloMeshes) m.material.opacity = opacity;
+    }
+
+    // Dream halo + wireframe dimming (Nooscope-da2m). Slower breathe than
+    // the session halo so the visual reads as a deeper, sleepier state.
+    if (this._dreamHaloMeshes.length > 0) {
+      const EASE = 0.03;
+      const target = dreaming ? 0.10 : 0;
+      this._dreamHaloOpacity += (target - this._dreamHaloOpacity) * EASE;
+      this._dreamHaloPhase = (this._dreamHaloPhase + 0.005) % (Math.PI * 2);
+      const breathe = 0.7 + 0.3 * Math.sin(this._dreamHaloPhase);
+      let opacity = this._dreamHaloOpacity * breathe;
+      // Consolidation flash — brief brightness spike when a dream
+      // mutated the brain. Eases in and out over ~800ms.
+      if (now < this._consolidationFlashUntil) {
+        const remaining = (this._consolidationFlashUntil - now) / 800;
+        opacity += 0.25 * remaining;
+      }
+      for (const m of this._dreamHaloMeshes) m.material.opacity = opacity;
+    }
+    if (this._brainWireframeMeshes.length > 0) {
+      // Dim wireframe by 40% during dreaming. Eased so the transition
+      // doesn't pop on entry/exit. A block damp (Nooscope-bf3x) layers
+      // multiplicatively and uses a faster ease so the dim actually
+      // lands within the 300ms attention window instead of barely moving.
+      const base = this._brainWireframeBaseOpacity;
+      let target = dreaming ? base * 0.6 : base;
+      let ease = 0.04;
+      if (blockDamp < 1.0) {
+        target *= blockDamp;
+        ease = 0.15;
+      }
+      for (const m of this._brainWireframeMeshes) {
+        m.material.opacity += (target - m.material.opacity) * ease;
+      }
     }
 
     // Causal tracers — animate comet trails between sentinels

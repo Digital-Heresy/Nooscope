@@ -1,7 +1,7 @@
 ---
 # Nooscope-rexl
 title: Adopt .claude/knowledge/ pattern + memory → knowledge audit
-status: completed
+status: done
 type: task
 created_at: 2026-05-14T08:13:41Z
 updated_at: 2026-05-14T00:00:00Z
