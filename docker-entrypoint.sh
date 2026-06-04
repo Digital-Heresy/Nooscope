@@ -62,7 +62,11 @@ fi
 #   prod (NOOSCOPE_HOST set): GET /scions on forge-web with retry. Fail
 #       container start if forge-web doesn't respond after retries — no
 #       baked-in fallback list (any fallback embeds a stale assumption
-#       about the fleet).
+#       about the fleet). Special case (Nooscope-thvl): PF gates every
+#       route behind /setup until the operator completes first-run
+#       setup, returning 503 + `{"error":"setup_required"}` on a fresh
+#       Pi5 deploy. We treat that sentinel as "no scions yet, continue"
+#       — same downstream path as a legitimate empty `{"scions":[]}`.
 #   dev (NOOSCOPE_HOST unset): hardcoded speaker + helix with badge
 #       'live-online'. Keeps the dev-shape config.js (per-port) the
 #       frontend already understands.
@@ -72,26 +76,68 @@ if [ -n "$NOOSCOPE_HOST" ]; then
     SCIONS_URL="http://${FORGE_WEB_HOST}/scions"
     echo "Nooscope: fetching Scion roster from ${SCIONS_URL}"
 
-    # BusyBox wget supports --header, --timeout, --tries. We layer our
-    # own retry loop on top because forge-web may not be up the instant
-    # Nooscope starts (compose service ordering can race).
+    # Why nc instead of wget: BusyBox wget unlinks the output file on
+    # any 4xx/5xx response, so we can't read PF's 503 body to look for
+    # the setup_required sentinel (Nooscope-thvl). Raw HTTP/1.0 over
+    # BusyBox nc keeps both the status line and the body in one capture.
+    # We split FORGE_WEB_HOST (e.g. "forge-web:8200") into host + port;
+    # default to port 80 if no colon. `|| true` after nc because `set -e`
+    # and nc exits non-zero on connection refused / timeout.
+    FORGE_WEB_NAME="${FORGE_WEB_HOST%:*}"
+    case "$FORGE_WEB_HOST" in
+        *:*) FORGE_WEB_PORT="${FORGE_WEB_HOST##*:}" ;;
+        *)   FORGE_WEB_PORT="80" ;;
+    esac
+
     SCIONS_JSON=""
+    SCIONS_RAW="/tmp/scions.raw"
+    SCIONS_BODY="/tmp/scions.body"
     attempt=1
     while [ "$attempt" -le 5 ]; do
-        if SCIONS_JSON=$(wget -q -O - \
-                --header "Accept: application/json" \
-                --timeout=10 \
-                --tries=1 \
-                "$SCIONS_URL" 2>/dev/null); then
-            break
+        rm -f "$SCIONS_RAW" "$SCIONS_BODY"
+        printf 'GET /scions HTTP/1.0\r\nHost: %s\r\nAccept: application/json\r\nConnection: close\r\n\r\n' \
+            "$FORGE_WEB_HOST" \
+            | nc -w 10 "$FORGE_WEB_NAME" "$FORGE_WEB_PORT" > "$SCIONS_RAW" 2>/dev/null \
+            || true
+
+        if [ -s "$SCIONS_RAW" ]; then
+            # Strip \r so subsequent sed/awk are line-clean.
+            tr -d '\r' < "$SCIONS_RAW" > "${SCIONS_RAW}.clean"
+            HTTP_CODE=$(awk 'NR==1{print $2; exit}' "${SCIONS_RAW}.clean")
+            # Body = everything after the first blank line.
+            sed '1,/^$/d' "${SCIONS_RAW}.clean" > "$SCIONS_BODY"
+        else
+            HTTP_CODE=""
+            : > "$SCIONS_BODY"
         fi
-        echo "Nooscope: /scions fetch attempt ${attempt}/5 failed, retrying in 2s"
+
+        case "$HTTP_CODE" in
+            200)
+                SCIONS_JSON=$(cat "$SCIONS_BODY")
+                break
+                ;;
+            503)
+                if jq -e '.error == "setup_required"' "$SCIONS_BODY" >/dev/null 2>&1; then
+                    echo "Nooscope: PF reports setup_required (operator hasn't completed first-run setup); starting with empty Scion roster"
+                    SCIONS_JSON='{"scions": []}'
+                    break
+                fi
+                echo "Nooscope: /scions returned 503 without setup_required sentinel, attempt ${attempt}/5"
+                ;;
+            "")
+                echo "Nooscope: /scions unreachable, attempt ${attempt}/5"
+                ;;
+            *)
+                echo "Nooscope: /scions returned HTTP ${HTTP_CODE}, attempt ${attempt}/5"
+                ;;
+        esac
+
         attempt=$((attempt + 1))
-        sleep 2
+        [ "$attempt" -le 5 ] && sleep 2
     done
 
     if [ -z "$SCIONS_JSON" ]; then
-        echo "FATAL: could not reach ${SCIONS_URL} after 5 attempts. Refusing to start with a stale Scion list." >&2
+        echo "FATAL: could not reach ${SCIONS_URL} with a usable response after 5 attempts. Refusing to start with a stale Scion list." >&2
         exit 1
     fi
 
