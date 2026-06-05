@@ -1,13 +1,30 @@
 ---
 # Nooscope-ges3
 title: Network-facing public/admin mode (Thriden deployment context)
-status: todo
+status: done
 type: epic
 priority: high
 created_at: 2026-05-14T07:41:41Z
-updated_at: 2026-05-21T00:00:00Z
+updated_at: 2026-06-05T01:00:18Z
 parent: Nooscope-lm3k
 ---
+
+## Closure (2026-06-04)
+
+Both sub-tasks shipped:
+
+- [[Nooscope-03z5]] — TLS termination via Caddy on `noo.thriden.dev` (closed 2026-05-30).
+- [[Nooscope-e5nv]] — SOPS-decrypted env wiring (closed 2026-06-04). Audit showed the wiring was already in place via `MindHive/bin/thriden-deploy-payload.sh`'s `sops exec-env` wrapper + compose env-map inheritance; only the admin-tier secrets (`NOOSCOPE_ADMIN_PASSWORD`, `FORGE_WEB_ADMIN_TOKEN`) are needed on smoke-test, and they're in `stack.enc.env`.
+
+**Substrate-side criterion satisfied** — `noo.thriden.dev` serves the Nooscope bundle over valid TLS through Caddy, with the env-var pipeline ready to inject upstream tokens whenever Scions exist.
+
+**Scion-dependent criteria roll to post-v1.** The remaining acceptance items (public-mode connect to each Scion's `/ws/telemetry/public`, admin-mode bearer-token injection on outbound proxy requests, Pi5-vs-localhost parity) are inherently gated on Scions existing on the Pi5. The smoke-test Pi5 runs zero Scions by design (`project_thriden_smoke_test_scope`); the [[project_thriden_smoke_test_scope]] / per-Scion token generation lives with the Helix/Speaker-to-Thriden migration tracked under [[MindHive-h9fz]]. The Nooscope-side mechanics — per-Scion env-var slots in compose, nginx envsubst + bearer-header injection — are all in place from [[Nooscope-r5kh]] and the de9m dynamic registry; the migration bean only needs to populate `RAVEN_TOKEN_*` / `MORPHEUS_TOKEN_*` in SOPS and watch the existing pipeline carry them through.
+
+The pre-flight thvl fix ([[Nooscope-thvl]], closed 2026-06-04) removed the last container-side blocker on a Scion-less Pi5: PF's first-run-gate 503 + `setup_required` sentinel is now tolerated as an empty roster instead of restart-looping.
+
+---
+
+## Original Bean Body (preserved for history)
 
 ## Scope
 
