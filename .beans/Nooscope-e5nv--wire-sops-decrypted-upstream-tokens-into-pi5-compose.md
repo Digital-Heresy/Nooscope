@@ -1,13 +1,30 @@
 ---
 # Nooscope-e5nv
 title: Wire SOPS-decrypted upstream tokens into Pi5 docker-compose
-status: todo
+status: done
 type: task
 priority: high
 created_at: 2026-05-21T00:00:00Z
-updated_at: 2026-05-21T00:00:00Z
+updated_at: 2026-06-05T01:00:18Z
 parent: Nooscope-ges3
 ---
+
+## Closure (2026-06-04)
+
+The wiring this bean asked for already exists end-to-end; no Nooscope-side change was needed. Audit on 2026-06-04 confirmed:
+
+- `MindHive/bin/thriden-deploy-payload.sh:532` runs the prod stack via `sops exec-env "$stack_env" "docker compose -f docker-compose.yml -f compose.prod.yml up -d ..."`. The outer sops layer exports `secrets/prod/stack.enc.env` into the subprocess; compose interpolates `${VAR}` references from that env when expanding service definitions.
+- `MindHive/docker-compose.yml:482-489` declares nooscope's `environment:` block with `NOOSCOPE_ADMIN_PASSWORD: ${NOOSCOPE_ADMIN_PASSWORD:-}` and `FORGE_WEB_ADMIN_TOKEN: ${FORGE_WEB_ADMIN_TOKEN:-}` (plus the per-Scion `RAVEN_TOKEN_*` / `MORPHEUS_TOKEN_*` slots).
+- `MindHive/compose.prod.yml:66-69` only overrides `NOOSCOPE_HOST`; the env map merges (no `!override` / `!reset null`) so the dev file's `${...}` references are inherited into prod.
+- `MindHive/secrets/prod/stack.enc.env` carries `NOOSCOPE_ADMIN_PASSWORD` + `FORGE_WEB_ADMIN_TOKEN` (generated + encrypted 2026-05-23, per `docs/1password-vault-layout.md:74-75`). These are the only Nooscope-tier secrets needed on the smoke-test Pi5.
+
+**Per-Scion tokens deferred, not missing.** `RAVEN_TOKEN_{SPEAKER,HELIX}` and `MORPHEUS_TOKEN_{SPEAKER,HELIX}` were briefly generated then stripped on 2026-05-23 because smoke-test Pi5 has zero Scions — "nooscope has no Speaker upstream to auth against, so the token was dead weight" (`docs/1password-vault-layout.md:70`). When Helix/Speaker migrate to Thriden (post-v1, per [[MindHive-h9fz]]), a fresh bean will generate the pair, drop them into `stack.enc.env`, and exercise the admin-tier upstream auth. The compose-side wiring is ready for them — the env-var slots already exist and inherit cleanly from dev.
+
+The original acceptance criteria (per-Scion env populated, admin-mode Scion telemetry, in-browser switch) are mostly meaningful only when Scions exist on the Pi5; they roll forward to that future bean.
+
+---
+
+## Original Bean Body (preserved for history)
 
 Make the Pi5 deployment of Nooscope work end-to-end against *.thriden.dev brains by ensuring the per-Scion upstream tokens are present in the Nooscope container's environment, where `docker-entrypoint.sh` + nginx envsubst expect them. The tokens themselves are produced by MindHive's SOPS+age infrastructure; this bean is the wiring between that infrastructure and the Nooscope container.
 
