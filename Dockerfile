@@ -20,10 +20,11 @@ COPY nginx.conf.template /etc/nginx/conf.d/default.conf.template
 #     references. The upstream image doesn't ship it.
 #   - jq — parses the JSON shape returned by forge-web's /scions endpoint
 #     so the entrypoint can loop over the discovered Scion roster.
-# Fetching /scions uses BusyBox `wget` (already in the base image), NOT
+# Fetching /scions uses BusyBox `nc` (already in the base image), NOT
 # curl. f624b74 dropped curl to clear three High CVEs (alpine 3.23
-# curl <8.19); we keep that posture and use wget --header for the
-# Accept: application/json call.
+# curl <8.19); we keep that posture. The probe speaks raw HTTP/1.0 over
+# nc so it can read PF's first-run 503 body (BusyBox wget unlinks the
+# body on any 4xx/5xx) — see docker-entrypoint.sh (Nooscope-thvl/oh9z).
 COPY docker-entrypoint.sh /docker-entrypoint.sh
 RUN apk add --no-cache gettext jq \
     && apk del curl \
