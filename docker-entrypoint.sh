@@ -80,6 +80,8 @@ if [ -n "$NOOSCOPE_HOST" ]; then
     # any 4xx/5xx response, so we can't read PF's 503 body to look for
     # the setup_required sentinel (Nooscope-thvl). Raw HTTP/1.0 over
     # BusyBox nc keeps both the status line and the body in one capture.
+    # (curl would be cleaner, but f624b74 stripped it from the image to
+    # clear three High curl CVEs; we keep that posture — see Dockerfile.)
     # We split FORGE_WEB_HOST (e.g. "forge-web:8200") into host + port;
     # default to port 80 if no colon. `|| true` after nc because `set -e`
     # and nc exits non-zero on connection refused / timeout.
@@ -95,8 +97,18 @@ if [ -n "$NOOSCOPE_HOST" ]; then
     attempt=1
     while [ "$attempt" -le 5 ]; do
         rm -f "$SCIONS_RAW" "$SCIONS_BODY"
-        printf 'GET /scions HTTP/1.0\r\nHost: %s\r\nAccept: application/json\r\nConnection: close\r\n\r\n' \
-            "$FORGE_WEB_HOST" \
+        # Hold stdin open briefly after writing the request (Nooscope-oh9z):
+        # BusyBox nc 1.37 tears down the socket read side the instant its
+        # stdin hits EOF, which races ahead of forge-web's response —
+        # notably PF's immediate first-run 503 — so the capture file lands
+        # empty and every attempt logs "unreachable". The trailing `sleep`
+        # keeps nc's stdin open long enough to read the full response
+        # (forge-web answers in well under a second on the docker network).
+        # The shell waits for the whole pipeline, so this adds a fixed ~2s
+        # to a probe attempt; the loop breaks on the first usable response,
+        # so on the happy path it is paid once at container start.
+        { printf 'GET /scions HTTP/1.0\r\nHost: %s\r\nAccept: application/json\r\nConnection: close\r\n\r\n' \
+            "$FORGE_WEB_HOST"; sleep 2; } \
             | nc -w 10 "$FORGE_WEB_NAME" "$FORGE_WEB_PORT" > "$SCIONS_RAW" 2>/dev/null \
             || true
 
