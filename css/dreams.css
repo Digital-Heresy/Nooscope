@@ -522,3 +522,27 @@
 .dreams-page #custom-dialog {
   top: 44px;
 }
+
+/* SOUL-in-Git notice (Nooscope dreams). Shown when the connected Scion's
+   SOUL isn't managed in a Git repo — dream reflections can't become PRs.
+   position: fixed takes it out of the #dreams-container grid flow so it
+   doesn't disturb the timeline/detail columns; floats just under the
+   status bar. Toggled by js/dreams.js via the global .hidden rule. */
+#soul-repo-warning {
+  position: fixed;
+  top: 40px;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  padding: 7px 14px;
+  background: rgba(255, 140, 0, 0.12);
+  border-bottom: 1px solid var(--accent-orange);
+  color: var(--accent-orange);
+  font-size: 13px;
+  text-align: center;
+}
+#soul-repo-warning a {
+  color: var(--accent-cyan);
+  text-decoration: underline;
+  margin-left: 4px;
+}

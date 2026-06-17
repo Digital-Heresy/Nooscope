@@ -173,14 +173,16 @@ if [ -n "$NOOSCOPE_HOST" ]; then
     # runtime_short "dm" → services forge-dm / engram-dm). The upstream
     # proxy MUST address by runtime_short, not slug. `// ""` tolerates an
     # older forge-web that doesn't surface it (entrypoint falls back to slug).
+    # 6th column: soul_managed — whether SOUL-in-Git is configured. The
+    # dreams view warns when it's false. `// false` tolerates older forge-web.
     printf '%s' "$SCIONS_JSON" \
         | jq -r '.scions[] | select(.engram_bound == true)
-                | [.scion_slug, .name, .badge, .scion_id, (.runtime_short // "")] | @tsv' \
+                | [.scion_slug, .name, .badge, .scion_id, (.runtime_short // ""), (.soul_managed // false)] | @tsv' \
         > "$SCION_TSV"
 else
     cat > "$SCION_TSV" <<'EOF'
-speaker	Speaker	live-online	dh-speaker	speaker
-helix	Helix	live-online	dh-helix	helix
+speaker	Speaker	live-online	dh-speaker	speaker	false
+helix	Helix	live-online	dh-helix	helix	false
 EOF
 fi
 
@@ -201,24 +203,27 @@ escape_js_single() {
     printf 'const NOOSCOPE_CONFIG = {\n'
     printf '  scions: {\n'
     if [ -n "$NOOSCOPE_HOST" ]; then
-        # Prod shape: { host, pfPrefix, name, badge, scionId }.
-        while IFS='	' read -r slug name badge scion_id _short; do
+        # Prod shape: { host, pfPrefix, name, badge, scionId, soulRepo }.
+        while IFS='	' read -r slug name badge scion_id _short soul; do
             name_js=$(escape_js_single "$name")
+            # soul_managed arrives as the literal "true"/"false" from jq;
+            # default anything else to false so the JS stays a valid boolean.
+            [ "$soul" = "true" ] || soul=false
             # Quote the slug key — PF slugs are [a-z0-9-]+, and a hyphen
             # (e.g. "dm-cairn") is NOT a valid unquoted JS object key, so
             # an unquoted key breaks config.js parsing and blanks the whole
             # roster. Quoting makes any valid slug safe.
-            printf "    \"%s\": { host: '%s', pfPrefix: '/%s', name: '%s', badge: '%s', scionId: '%s' },\n" \
-                "$slug" "$NOOSCOPE_HOST" "$slug" "$name_js" "$badge" "$scion_id"
+            printf "    \"%s\": { host: '%s', pfPrefix: '/%s', name: '%s', badge: '%s', scionId: '%s', soulRepo: %s },\n" \
+                "$slug" "$NOOSCOPE_HOST" "$slug" "$name_js" "$badge" "$scion_id" "$soul"
         done < "$SCION_TSV"
     else
-        # Dev shape: { thriden, pf, name, badge, scionId }. Only
+        # Dev shape: { thriden, pf, name, badge, scionId, soulRepo }. Only
         # speaker + helix are wired in dev — same scope as the pre-de9m
         # behavior. scionId carries the canonical PF identifier so
         # social.js can call /admin/scions/{scionId}/... uniformly.
-        printf "    speaker: { thriden: %s, pf: %s, name: 'Speaker', badge: 'live-online', scionId: 'dh-speaker' },\n" \
+        printf "    speaker: { thriden: %s, pf: %s, name: 'Speaker', badge: 'live-online', scionId: 'dh-speaker', soulRepo: false },\n" \
             "${SPEAKER_THRIDEN_PORT:-3030}" "${SPEAKER_PF_PORT:-8100}"
-        printf "    helix:   { thriden: %s, pf: %s, name: 'Helix', badge: 'live-online', scionId: 'dh-helix' },\n" \
+        printf "    helix:   { thriden: %s, pf: %s, name: 'Helix', badge: 'live-online', scionId: 'dh-helix', soulRepo: false },\n" \
             "${HELIX_THRIDEN_PORT:-3031}" "${HELIX_PF_PORT:-8101}"
     fi
     printf '  },\n'
@@ -240,7 +245,7 @@ escape_js_single() {
         printf 'ok dev\n'
     fi
     printf 'scions=%s\n' "$scion_count"
-    while IFS='	' read -r slug name badge scion_id _short; do
+    while IFS='	' read -r slug name badge scion_id _short _soul; do
         printf '  %s\t%s\t%s\t%s\n' "$slug" "$name" "$badge" "$scion_id"
     done < "$SCION_TSV"
 } > "$HEALTHZ_PATH"
@@ -381,7 +386,7 @@ fetch_telemetry_tokens() {
 : > "$BLOCKS_FRAGMENT"
 ENVSUBST_VARS='${FORGE_WEB_ADMIN_TOKEN}'
 
-while IFS='	' read -r slug name badge scion_id short; do
+while IFS='	' read -r slug name badge scion_id short _soul; do
     # nginx variable names allow only [A-Za-z0-9_]; slugs with hyphens
     # need them translated to underscores for use in $engram_<slug> etc.
     slug_var=$(printf '%s' "$slug" | tr '-' '_')
