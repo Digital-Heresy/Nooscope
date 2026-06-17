@@ -198,7 +198,11 @@ escape_js_single() {
         # Prod shape: { host, pfPrefix, name, badge, scionId }.
         while IFS='	' read -r slug name badge scion_id; do
             name_js=$(escape_js_single "$name")
-            printf "    %s: { host: '%s', pfPrefix: '/%s', name: '%s', badge: '%s', scionId: '%s' },\n" \
+            # Quote the slug key — PF slugs are [a-z0-9-]+, and a hyphen
+            # (e.g. "dm-cairn") is NOT a valid unquoted JS object key, so
+            # an unquoted key breaks config.js parsing and blanks the whole
+            # roster. Quoting makes any valid slug safe.
+            printf "    \"%s\": { host: '%s', pfPrefix: '/%s', name: '%s', badge: '%s', scionId: '%s' },\n" \
                 "$slug" "$NOOSCOPE_HOST" "$slug" "$name_js" "$badge" "$scion_id"
         done < "$SCION_TSV"
     else
