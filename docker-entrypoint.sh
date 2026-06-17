@@ -30,8 +30,8 @@
 #   HELIX_THRIDEN_PORT               dev mode only — default 3031
 #   HELIX_PF_PORT                    dev mode only — default 8101
 #   FORGE_WEB_HOST                   prod mode — default 'forge-web:8200'
-#   RAVEN_TOKEN_<SLUG>               engram WS auth bearer (per Scion)
-#   MORPHEUS_TOKEN_<SLUG>            forge WS + REST bearer (per Scion)
+#   RAVEN_TOKEN_<SLUG>               engram + forge telemetry WS bearer (per Scion)
+#   MORPHEUS_TOKEN_<SLUG>            forge dream REST bearer (/morpheus/*, per Scion)
 #   FORGE_WEB_ADMIN_TOKEN            cross-Scion admin web bearer
 
 set -e
@@ -327,7 +327,9 @@ cat > "$BLOCK_TPL" <<'EOF'
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
-        proxy_set_header Sec-WebSocket-Protocol "bearer.$MORPHEUS_TOKEN___SLUG_UPPER__";
+        # forge-dm /ws/telemetry is Raven-authed (health.py _AUTHED_ROUTES) —
+        # same raven_token as the engram stream above. Morpheus is REST-only.
+        proxy_set_header Sec-WebSocket-Protocol "bearer.$RAVEN_TOKEN___SLUG_UPPER__";
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_read_timeout 86400;
