@@ -202,7 +202,7 @@ escape_js_single() {
     printf '  scions: {\n'
     if [ -n "$NOOSCOPE_HOST" ]; then
         # Prod shape: { host, pfPrefix, name, badge, scionId }.
-        while IFS='	' read -r slug name badge scion_id; do
+        while IFS='	' read -r slug name badge scion_id _short; do
             name_js=$(escape_js_single "$name")
             # Quote the slug key — PF slugs are [a-z0-9-]+, and a hyphen
             # (e.g. "dm-cairn") is NOT a valid unquoted JS object key, so
@@ -240,7 +240,7 @@ escape_js_single() {
         printf 'ok dev\n'
     fi
     printf 'scions=%s\n' "$scion_count"
-    while IFS='	' read -r slug name badge scion_id; do
+    while IFS='	' read -r slug name badge scion_id _short; do
         printf '  %s\t%s\t%s\t%s\n' "$slug" "$name" "$badge" "$scion_id"
     done < "$SCION_TSV"
 } > "$HEALTHZ_PATH"
