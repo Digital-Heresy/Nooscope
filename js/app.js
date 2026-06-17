@@ -163,11 +163,17 @@ function buildWsUrl(scionConfig, service) {
   const path = admin ? '/ws/telemetry' : '/ws/telemetry/public';
 
   if (scionConfig.host) {
-    // Production: use proxy path prefix per scion (e.g. /speaker/ws/telemetry)
+    // Production: build the URL RELATIVE to the browser's current origin
+    // (location.host/protocol) rather than a configured hostname, so
+    // Nooscope works behind ANY ingress — a tunnel hostname, a raw LAN
+    // IP:8080, or localhost — with no host config to get wrong. nooscope's
+    // own nginx proxies the per-Scion proxy-path prefix (e.g.
+    // /speaker/ws/telemetry) and injects the upstream bearer. scionConfig.host
+    // is now only a prod-mode marker; its VALUE is intentionally ignored.
     const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const prefix = scionConfig.pfPrefix || '';
     const wsPath = service === 'pf' ? `/ws/pf/telemetry${admin ? '' : '/public'}` : path;
-    return `${protocol}//${scionConfig.host}${prefix}${wsPath}`;
+    return `${protocol}//${location.host}${prefix}${wsPath}`;
   } else {
     // Development: localhost with port
     const port = service === 'thriden' ? scionConfig.thriden : scionConfig.pf;

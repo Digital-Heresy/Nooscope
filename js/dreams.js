@@ -102,10 +102,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
 function buildPfBaseUrl(scionConfig) {
   if (scionConfig.host) {
-    // Production: use proxy path prefix (e.g. /speaker/morpheus/)
-    const protocol = location.protocol;
-    const base = `${protocol}//${scionConfig.host}`;
-    return scionConfig.pfPrefix ? `${base}${scionConfig.pfPrefix}` : base;
+    // Production: relative to the browser's origin so it works behind any
+    // ingress (tunnel / LAN-IP / localhost); nooscope's nginx proxies the
+    // per-Scion prefix (e.g. /speaker/morpheus/). scionConfig.host is now
+    // only a prod-mode marker; its value is intentionally ignored.
+    return scionConfig.pfPrefix ? `${location.origin}${scionConfig.pfPrefix}` : location.origin;
   }
   // If served over HTTP (Docker/nginx), use same-origin proxy paths to avoid CORS
   if (DreamState.scionName && (location.protocol === 'http:' || location.protocol === 'https:')) {
