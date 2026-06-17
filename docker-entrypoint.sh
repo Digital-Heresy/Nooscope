@@ -167,14 +167,20 @@ if [ -n "$NOOSCOPE_HOST" ]; then
     # forges the first Scion on PF whenever they're ready (next
     # container restart picks it up). Only forge-web *unreachable*
     # fails the container start, not "reachable and empty."
+    # 5th column: runtime_short — the compose service shortname
+    # (engram-<short> / forge-<short>). It diverges from scion_slug when a
+    # Scion was provisioned with a different short (e.g. slug "dm-cairn" but
+    # runtime_short "dm" → services forge-dm / engram-dm). The upstream
+    # proxy MUST address by runtime_short, not slug. `// ""` tolerates an
+    # older forge-web that doesn't surface it (entrypoint falls back to slug).
     printf '%s' "$SCIONS_JSON" \
         | jq -r '.scions[] | select(.engram_bound == true)
-                | [.scion_slug, .name, .badge, .scion_id] | @tsv' \
+                | [.scion_slug, .name, .badge, .scion_id, (.runtime_short // "")] | @tsv' \
         > "$SCION_TSV"
 else
     cat > "$SCION_TSV" <<'EOF'
-speaker	Speaker	live-online	dh-speaker
-helix	Helix	live-online	dh-helix
+speaker	Speaker	live-online	dh-speaker	speaker
+helix	Helix	live-online	dh-helix	helix
 EOF
 fi
 
@@ -196,7 +202,7 @@ escape_js_single() {
     printf '  scions: {\n'
     if [ -n "$NOOSCOPE_HOST" ]; then
         # Prod shape: { host, pfPrefix, name, badge, scionId }.
-        while IFS='	' read -r slug name badge scion_id; do
+        while IFS='	' read -r slug name badge scion_id _short; do
             name_js=$(escape_js_single "$name")
             # Quote the slug key — PF slugs are [a-z0-9-]+, and a hyphen
             # (e.g. "dm-cairn") is NOT a valid unquoted JS object key, so
@@ -234,7 +240,7 @@ escape_js_single() {
         printf 'ok dev\n'
     fi
     printf 'scions=%s\n' "$scion_count"
-    while IFS='	' read -r slug name badge scion_id; do
+    while IFS='	' read -r slug name badge scion_id _short; do
         printf '  %s\t%s\t%s\t%s\n' "$slug" "$name" "$badge" "$scion_id"
     done < "$SCION_TSV"
 } > "$HEALTHZ_PATH"
@@ -252,9 +258,12 @@ map $cookie_nooscope_admin $morpheus_auth___SLUG_VAR__ {
 }
 EOF
 
-# Templates use three placeholders:
-#   __SLUG__        the raw slug, used in URL paths and docker hostnames
-#                   (e.g. /dm-cairn/..., engram-dm-cairn:3030)
+# Templates use these placeholders:
+#   __SLUG__        the raw slug, used ONLY in URL paths (e.g. /dm-cairn/...).
+#   __SHORT__       runtime_short — the compose service shortname, used ONLY
+#                   in docker hostnames (engram-__SHORT__:3030 /
+#                   forge-__SHORT__:8100). Distinct from __SLUG__ because the
+#                   two diverge (slug "dm-cairn" vs runtime_short "dm").
 #   __SLUG_VAR__    slug with hyphens → underscores, used in nginx variable
 #                   names (e.g. $engram_dm_cairn). nginx forbids hyphens in
 #                   variable names.
@@ -264,8 +273,8 @@ EOF
 cat > "$BLOCK_TPL" <<'EOF'
 
     # ---- __SCION_NAME__ (__SLUG__) ----
-    set $engram___SLUG_VAR__ engram-__SLUG__:3030;
-    set $forge___SLUG_VAR__  forge-__SLUG__:8100;
+    set $engram___SLUG_VAR__ engram-__SHORT__:3030;
+    set $forge___SLUG_VAR__  forge-__SHORT__:8100;
 
     location /__SLUG__/ws/telemetry {
         if ($cookie_nooscope_admin != "1") { return 401; }
@@ -344,16 +353,66 @@ escape_sed_replacement() {
     printf '%s' "$1" | sed -e 's/[\\&|]/\\&/g'
 }
 
+# Fetch one Scion's telemetry tokens from forge-web, Bearer-authed by
+# FORGE_WEB_ADMIN_TOKEN. Echoes the JSON body on HTTP 200, nothing
+# otherwise. Raw HTTP/1.0 over nc — no curl/wget in the image (CVE
+# posture; mirrors the /scions fetch above). Best-effort: any failure
+# (unreachable, 403 when the admin token isn't wired, 404, 503) yields
+# empty output and the caller leaves the token env var untouched.
+fetch_telemetry_tokens() {
+    _ftt_raw="/tmp/teltok.raw"
+    rm -f "$_ftt_raw" "${_ftt_raw}.clean"
+    { printf 'GET /scions/%s/telemetry-tokens HTTP/1.0\r\nHost: %s\r\nAuthorization: Bearer %s\r\nAccept: application/json\r\nConnection: close\r\n\r\n' \
+        "$1" "$FORGE_WEB_HOST" "$FORGE_WEB_ADMIN_TOKEN"; sleep 2; } \
+        | nc -w 10 "$FORGE_WEB_NAME" "$FORGE_WEB_PORT" > "$_ftt_raw" 2>/dev/null \
+        || true
+    if [ -s "$_ftt_raw" ]; then
+        tr -d '\r' < "$_ftt_raw" > "${_ftt_raw}.clean"
+        if [ "$(awk 'NR==1{print $2; exit}' "${_ftt_raw}.clean")" = "200" ]; then
+            sed '1,/^$/d' "${_ftt_raw}.clean"
+        fi
+    fi
+    # Wipe token material from /tmp — secrets must not persist in the
+    # container filesystem after the caller has consumed the response.
+    rm -f "$_ftt_raw" "${_ftt_raw}.clean"
+}
+
 : > "$MAPS_FRAGMENT"
 : > "$BLOCKS_FRAGMENT"
 ENVSUBST_VARS='${FORGE_WEB_ADMIN_TOKEN}'
 
-while IFS='	' read -r slug name badge scion_id; do
+while IFS='	' read -r slug name badge scion_id short; do
     # nginx variable names allow only [A-Za-z0-9_]; slugs with hyphens
     # need them translated to underscores for use in $engram_<slug> etc.
     slug_var=$(printf '%s' "$slug" | tr '-' '_')
     slug_upper=$(printf '%s' "$slug" | tr '[:lower:]-' '[:upper:]_')
+    # runtime_short addresses the compose service (engram-<short> /
+    # forge-<short>). Empty (older forge-web without the field) → fall back
+    # to slug, which is correct whenever slug == runtime_short (speaker/helix).
+    short=${short:-$slug}
     name_sed=$(escape_sed_replacement "$name")
+    # Escape short for sed's replacement side (& \ | are special with the |
+    # delimiter). In practice runtime_short is [a-z0-9-] (Docker Compose
+    # service name constraints), so this never fires — but defensive escaping
+    # costs nothing and is consistent with how name_sed is handled.
+    short_sed=$(escape_sed_replacement "$short")
+
+    # Per-Scion telemetry tokens: when the forge-web admin token is wired
+    # up (prod mode), fetch each Scion's raven/morpheus tokens and export
+    # them so envsubst injects the per-Scion bearer. This covers
+    # dynamically-provisioned Scions whose tokens aren't hardcoded in the
+    # compose env (only speaker/helix are). Best-effort: on any failure the
+    # token env var stays as-is — public telemetry still works; admin
+    # telemetry for that Scion degrades to a 401 the operator can diagnose.
+    if [ -n "$FORGE_WEB_ADMIN_TOKEN" ] && [ -n "$NOOSCOPE_HOST" ]; then
+        _ttok=$(fetch_telemetry_tokens "$scion_id")
+        if [ -n "$_ttok" ]; then
+            _rv=$(printf '%s' "$_ttok" | jq -r '.raven_token // ""')
+            _mp=$(printf '%s' "$_ttok" | jq -r '.morpheus_token // ""')
+            [ -n "$_rv" ] && export "RAVEN_TOKEN_${slug_upper}=${_rv}"
+            [ -n "$_mp" ] && export "MORPHEUS_TOKEN_${slug_upper}=${_mp}"
+        fi
+    fi
 
     # The order of substitutions matters: __SLUG_VAR__ and __SLUG_UPPER__
     # both contain __SLUG__ as a substring, so we replace the more
@@ -366,6 +425,7 @@ while IFS='	' read -r slug name badge scion_id; do
 
     sed -e "s|__SLUG_UPPER__|${slug_upper}|g" \
         -e "s|__SLUG_VAR__|${slug_var}|g" \
+        -e "s|__SHORT__|${short_sed}|g" \
         -e "s|__SLUG__|${slug}|g" \
         -e "s|__SCION_NAME__|${name_sed}|g" \
         "$BLOCK_TPL" >> "$BLOCKS_FRAGMENT"
