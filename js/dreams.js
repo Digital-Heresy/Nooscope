@@ -104,8 +104,8 @@ function buildPfBaseUrl(scionConfig) {
   if (scionConfig.host) {
     // Production: relative to the browser's origin so it works behind any
     // ingress (tunnel / LAN-IP / localhost); nooscope's nginx proxies the
-    // per-Scion prefix (e.g. /speaker/morpheus/). scionConfig.host is now
-    // only a prod-mode marker; its value is intentionally ignored.
+    // per-Scion slug prefix (e.g. /speaker). scionConfig.host is now only
+    // a prod-mode marker; its value is intentionally ignored.
     return scionConfig.pfPrefix ? `${location.origin}${scionConfig.pfPrefix}` : location.origin;
   }
   // If served over HTTP (Docker/nginx), use same-origin proxy paths to avoid CORS
