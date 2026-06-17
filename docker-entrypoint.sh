@@ -167,14 +167,20 @@ if [ -n "$NOOSCOPE_HOST" ]; then
     # forges the first Scion on PF whenever they're ready (next
     # container restart picks it up). Only forge-web *unreachable*
     # fails the container start, not "reachable and empty."
+    # 5th column: runtime_short — the compose service shortname
+    # (engram-<short> / forge-<short>). It diverges from scion_slug when a
+    # Scion was provisioned with a different short (e.g. slug "dm-cairn" but
+    # runtime_short "dm" → services forge-dm / engram-dm). The upstream
+    # proxy MUST address by runtime_short, not slug. `// ""` tolerates an
+    # older forge-web that doesn't surface it (entrypoint falls back to slug).
     printf '%s' "$SCIONS_JSON" \
         | jq -r '.scions[] | select(.engram_bound == true)
-                | [.scion_slug, .name, .badge, .scion_id] | @tsv' \
+                | [.scion_slug, .name, .badge, .scion_id, (.runtime_short // "")] | @tsv' \
         > "$SCION_TSV"
 else
     cat > "$SCION_TSV" <<'EOF'
-speaker	Speaker	live-online	dh-speaker
-helix	Helix	live-online	dh-helix
+speaker	Speaker	live-online	dh-speaker	speaker
+helix	Helix	live-online	dh-helix	helix
 EOF
 fi
 
@@ -252,9 +258,12 @@ map $cookie_nooscope_admin $morpheus_auth___SLUG_VAR__ {
 }
 EOF
 
-# Templates use three placeholders:
-#   __SLUG__        the raw slug, used in URL paths and docker hostnames
-#                   (e.g. /dm-cairn/..., engram-dm-cairn:3030)
+# Templates use these placeholders:
+#   __SLUG__        the raw slug, used ONLY in URL paths (e.g. /dm-cairn/...).
+#   __SHORT__       runtime_short — the compose service shortname, used ONLY
+#                   in docker hostnames (engram-__SHORT__:3030 /
+#                   forge-__SHORT__:8100). Distinct from __SLUG__ because the
+#                   two diverge (slug "dm-cairn" vs runtime_short "dm").
 #   __SLUG_VAR__    slug with hyphens → underscores, used in nginx variable
 #                   names (e.g. $engram_dm_cairn). nginx forbids hyphens in
 #                   variable names.
@@ -264,8 +273,8 @@ EOF
 cat > "$BLOCK_TPL" <<'EOF'
 
     # ---- __SCION_NAME__ (__SLUG__) ----
-    set $engram___SLUG_VAR__ engram-__SLUG__:3030;
-    set $forge___SLUG_VAR__  forge-__SLUG__:8100;
+    set $engram___SLUG_VAR__ engram-__SHORT__:3030;
+    set $forge___SLUG_VAR__  forge-__SHORT__:8100;
 
     location /__SLUG__/ws/telemetry {
         if ($cookie_nooscope_admin != "1") { return 401; }
@@ -348,11 +357,15 @@ escape_sed_replacement() {
 : > "$BLOCKS_FRAGMENT"
 ENVSUBST_VARS='${FORGE_WEB_ADMIN_TOKEN}'
 
-while IFS='	' read -r slug name badge scion_id; do
+while IFS='	' read -r slug name badge scion_id short; do
     # nginx variable names allow only [A-Za-z0-9_]; slugs with hyphens
     # need them translated to underscores for use in $engram_<slug> etc.
     slug_var=$(printf '%s' "$slug" | tr '-' '_')
     slug_upper=$(printf '%s' "$slug" | tr '[:lower:]-' '[:upper:]_')
+    # runtime_short addresses the compose service (engram-<short> /
+    # forge-<short>). Empty (older forge-web without the field) → fall back
+    # to slug, which is correct whenever slug == runtime_short (speaker/helix).
+    short=${short:-$slug}
     name_sed=$(escape_sed_replacement "$name")
 
     # The order of substitutions matters: __SLUG_VAR__ and __SLUG_UPPER__
@@ -366,6 +379,7 @@ while IFS='	' read -r slug name badge scion_id; do
 
     sed -e "s|__SLUG_UPPER__|${slug_upper}|g" \
         -e "s|__SLUG_VAR__|${slug_var}|g" \
+        -e "s|__SHORT__|${short}|g" \
         -e "s|__SLUG__|${slug}|g" \
         -e "s|__SCION_NAME__|${name_sed}|g" \
         "$BLOCK_TPL" >> "$BLOCKS_FRAGMENT"
