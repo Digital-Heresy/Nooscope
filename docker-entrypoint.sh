@@ -174,13 +174,17 @@ if [ -n "$NOOSCOPE_HOST" ]; then
     # proxy MUST address by runtime_short, not slug. `// ""` tolerates an
     # older forge-web that doesn't surface it (entrypoint falls back to slug).
     # 6th column: soul_managed — whether SOUL-in-Git is configured. The
-    # dreams view warns when it's false. `// ""` for an absent field (older
-    # forge-web) leaves the TSV cell empty; the config.js loop then emits
-    # JS `undefined` so dreams.js stays quiet rather than nagging on a
-    # roster that predates the field.
+    # dreams view warns when it's false. jq's `//` treats boolean false as
+    # a fallback trigger (same as null), so we cannot use `// ""` here —
+    # that would silently drop an explicit `soul_managed: false` to an empty
+    # cell, map it to JS `undefined`, and the warning would never fire.
+    # Instead: `if .soul_managed == null then "" else tostring end` returns
+    # "" only when the field is truly absent/null (older forge-web) and
+    # converts the boolean to "true"/"false" otherwise.
     printf '%s' "$SCIONS_JSON" \
         | jq -r '.scions[] | select(.engram_bound == true)
-                | [.scion_slug, .name, .badge, .scion_id, (.runtime_short // ""), (.soul_managed // "")] | @tsv' \
+                | [.scion_slug, .name, .badge, .scion_id, (.runtime_short // ""),
+                   (if .soul_managed == null then "" else (.soul_managed | tostring) end)] | @tsv' \
         > "$SCION_TSV"
 else
     cat > "$SCION_TSV" <<'EOF'
