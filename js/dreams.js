@@ -192,6 +192,10 @@ function setConnectedState(connected) {
   btn.textContent = connected ? 'Disconnect' : 'Connect';
   btn.style.background = connected ? 'var(--status-disconnected)' : '';
   document.getElementById('scion-select').disabled = connected;
+  if (!connected) {
+    const soulWarn = document.getElementById('soul-repo-warning');
+    if (soulWarn) soulWarn.classList.add('hidden');
+  }
 }
 
 function onConnect() {

@@ -540,9 +540,11 @@
   color: var(--accent-orange);
   font-size: 13px;
   text-align: center;
+  pointer-events: none;
 }
 #soul-repo-warning a {
   color: var(--accent-cyan);
   text-decoration: underline;
   margin-left: 4px;
+  pointer-events: auto;
 }

@@ -174,10 +174,13 @@ if [ -n "$NOOSCOPE_HOST" ]; then
     # proxy MUST address by runtime_short, not slug. `// ""` tolerates an
     # older forge-web that doesn't surface it (entrypoint falls back to slug).
     # 6th column: soul_managed — whether SOUL-in-Git is configured. The
-    # dreams view warns when it's false. `// false` tolerates older forge-web.
+    # dreams view warns when it's false. `// ""` for an absent field (older
+    # forge-web) leaves the TSV cell empty; the config.js loop then emits
+    # JS `undefined` so dreams.js stays quiet rather than nagging on a
+    # roster that predates the field.
     printf '%s' "$SCIONS_JSON" \
         | jq -r '.scions[] | select(.engram_bound == true)
-                | [.scion_slug, .name, .badge, .scion_id, (.runtime_short // ""), (.soul_managed // false)] | @tsv' \
+                | [.scion_slug, .name, .badge, .scion_id, (.runtime_short // ""), (.soul_managed // "")] | @tsv' \
         > "$SCION_TSV"
 else
     cat > "$SCION_TSV" <<'EOF'
@@ -206,9 +209,15 @@ escape_js_single() {
         # Prod shape: { host, pfPrefix, name, badge, scionId, soulRepo }.
         while IFS='	' read -r slug name badge scion_id _short soul; do
             name_js=$(escape_js_single "$name")
-            # soul_managed arrives as the literal "true"/"false" from jq;
-            # default anything else to false so the JS stays a valid boolean.
-            [ "$soul" = "true" ] || soul=false
+            # soul_managed arrives as "true", "false", or "" (older forge-web
+            # that doesn't surface the field). Map to valid JS: "true" →
+            # true, "false" → false, "" → undefined (so dreams.js stays
+            # quiet on a roster that predates the field).
+            case "$soul" in
+                "true")  soul=true  ;;
+                "false") soul=false ;;
+                *)       soul=undefined ;;
+            esac
             # Quote the slug key — PF slugs are [a-z0-9-]+, and a hyphen
             # (e.g. "dm-cairn") is NOT a valid unquoted JS object key, so
             # an unquoted key breaks config.js parsing and blanks the whole
