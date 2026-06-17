@@ -366,11 +366,15 @@ fetch_telemetry_tokens() {
         "$1" "$FORGE_WEB_HOST" "$FORGE_WEB_ADMIN_TOKEN"; sleep 2; } \
         | nc -w 10 "$FORGE_WEB_NAME" "$FORGE_WEB_PORT" > "$_ftt_raw" 2>/dev/null \
         || true
-    [ -s "$_ftt_raw" ] || return 0
-    tr -d '\r' < "$_ftt_raw" > "${_ftt_raw}.clean"
-    if [ "$(awk 'NR==1{print $2; exit}' "${_ftt_raw}.clean")" = "200" ]; then
-        sed '1,/^$/d' "${_ftt_raw}.clean"
+    if [ -s "$_ftt_raw" ]; then
+        tr -d '\r' < "$_ftt_raw" > "${_ftt_raw}.clean"
+        if [ "$(awk 'NR==1{print $2; exit}' "${_ftt_raw}.clean")" = "200" ]; then
+            sed '1,/^$/d' "${_ftt_raw}.clean"
+        fi
     fi
+    # Wipe token material from /tmp — secrets must not persist in the
+    # container filesystem after the caller has consumed the response.
+    rm -f "$_ftt_raw" "${_ftt_raw}.clean"
 }
 
 : > "$MAPS_FRAGMENT"
@@ -387,6 +391,11 @@ while IFS='	' read -r slug name badge scion_id short; do
     # to slug, which is correct whenever slug == runtime_short (speaker/helix).
     short=${short:-$slug}
     name_sed=$(escape_sed_replacement "$name")
+    # Escape short for sed's replacement side (& \ | are special with the |
+    # delimiter). In practice runtime_short is [a-z0-9-] (Docker Compose
+    # service name constraints), so this never fires — but defensive escaping
+    # costs nothing and is consistent with how name_sed is handled.
+    short_sed=$(escape_sed_replacement "$short")
 
     # Per-Scion telemetry tokens: when the forge-web admin token is wired
     # up (prod mode), fetch each Scion's raven/morpheus tokens and export
@@ -416,7 +425,7 @@ while IFS='	' read -r slug name badge scion_id short; do
 
     sed -e "s|__SLUG_UPPER__|${slug_upper}|g" \
         -e "s|__SLUG_VAR__|${slug_var}|g" \
-        -e "s|__SHORT__|${short}|g" \
+        -e "s|__SHORT__|${short_sed}|g" \
         -e "s|__SLUG__|${slug}|g" \
         -e "s|__SCION_NAME__|${name_sed}|g" \
         "$BLOCK_TPL" >> "$BLOCKS_FRAGMENT"
