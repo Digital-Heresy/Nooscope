@@ -48,6 +48,11 @@
   <!-- Main content -->
   <div id="dreams-container">
 
+    <!-- SOUL-in-Git notice: shown when the connected Scion's SOUL isn't
+         managed in a Git repo yet (dream proposals can't become PRs).
+         Populated + toggled by js/dreams.js on connect. -->
+    <div id="soul-repo-warning" class="hidden"></div>
+
     <!-- Left: dream timeline -->
     <div id="dream-timeline">
       <div class="panel-header">

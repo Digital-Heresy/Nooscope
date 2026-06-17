@@ -116,12 +116,36 @@ function buildPfBaseUrl(scionConfig) {
   return `http://localhost:${scionConfig.pf}`;
 }
 
+// SOUL-in-Git notice. Dream reflections only become reviewable SOUL pull
+// requests once a Scion's SOUL is managed in a Git repo; warn when it isn't.
+// `soulRepo` comes from config.js (forge-web's /scions soul_managed). Only
+// false triggers the notice — undefined (older config.js / custom connect)
+// stays quiet rather than nagging on a roster that predates the field.
+const SOUL_REPO_WIKI =
+  'https://github.com/Digital-Heresy/PersonaForge/wiki/Workspace-%E2%80%94-SOUL-in-Git-Setup';
+
+function showSoulRepoNotice(scionConfig) {
+  const el = document.getElementById('soul-repo-warning');
+  if (!el) return;
+  if (scionConfig && scionConfig.soulRepo === false) {
+    el.innerHTML =
+      '⚠ SOUL-in-Git isn’t set up for this Scion yet — dream ' +
+      'reflections won’t become reviewable SOUL pull requests until it is. ' +
+      '<a href="' + SOUL_REPO_WIKI + '" target="_blank" rel="noopener noreferrer">' +
+      'Set up SOUL-in-Git →</a>';
+    el.classList.remove('hidden');
+  } else {
+    el.classList.add('hidden');
+  }
+}
+
 function connectToScion(scionConfig, scionName) {
   DreamState.scionName = scionName || 'custom';
   DreamState.pfBaseUrl = buildPfBaseUrl(scionConfig);
 
   setPfStatus('connected');
   setConnectedState(true);
+  showSoulRepoNotice(scionConfig);
   // Dream timeline reads work in public mode (Morpheus allows
   // unauthenticated GET on /dreams). Admin-only data — credits, channels —
   // only fetched when the user holds an admin session.
@@ -158,6 +182,8 @@ function disconnectAll() {
   document.getElementById('detail-empty').innerHTML = '<p>Select a dream from the timeline</p>';
   document.getElementById('detail-empty').classList.remove('hidden');
   document.getElementById('credits-display').classList.add('hidden');
+  const soulWarn = document.getElementById('soul-repo-warning');
+  if (soulWarn) soulWarn.classList.add('hidden');
 }
 
 function setConnectedState(connected) {
@@ -166,6 +192,10 @@ function setConnectedState(connected) {
   btn.textContent = connected ? 'Disconnect' : 'Connect';
   btn.style.background = connected ? 'var(--status-disconnected)' : '';
   document.getElementById('scion-select').disabled = connected;
+  if (!connected) {
+    const soulWarn = document.getElementById('soul-repo-warning');
+    if (soulWarn) soulWarn.classList.add('hidden');
+  }
 }
 
 function onConnect() {
