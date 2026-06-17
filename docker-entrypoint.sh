@@ -353,6 +353,26 @@ escape_sed_replacement() {
     printf '%s' "$1" | sed -e 's/[\\&|]/\\&/g'
 }
 
+# Fetch one Scion's telemetry tokens from forge-web, Bearer-authed by
+# FORGE_WEB_ADMIN_TOKEN. Echoes the JSON body on HTTP 200, nothing
+# otherwise. Raw HTTP/1.0 over nc — no curl/wget in the image (CVE
+# posture; mirrors the /scions fetch above). Best-effort: any failure
+# (unreachable, 403 when the admin token isn't wired, 404, 503) yields
+# empty output and the caller leaves the token env var untouched.
+fetch_telemetry_tokens() {
+    _ftt_raw="/tmp/teltok.raw"
+    rm -f "$_ftt_raw" "${_ftt_raw}.clean"
+    { printf 'GET /scions/%s/telemetry-tokens HTTP/1.0\r\nHost: %s\r\nAuthorization: Bearer %s\r\nAccept: application/json\r\nConnection: close\r\n\r\n' \
+        "$1" "$FORGE_WEB_HOST" "$FORGE_WEB_ADMIN_TOKEN"; sleep 2; } \
+        | nc -w 10 "$FORGE_WEB_NAME" "$FORGE_WEB_PORT" > "$_ftt_raw" 2>/dev/null \
+        || true
+    [ -s "$_ftt_raw" ] || return 0
+    tr -d '\r' < "$_ftt_raw" > "${_ftt_raw}.clean"
+    if [ "$(awk 'NR==1{print $2; exit}' "${_ftt_raw}.clean")" = "200" ]; then
+        sed '1,/^$/d' "${_ftt_raw}.clean"
+    fi
+}
+
 : > "$MAPS_FRAGMENT"
 : > "$BLOCKS_FRAGMENT"
 ENVSUBST_VARS='${FORGE_WEB_ADMIN_TOKEN}'
@@ -367,6 +387,23 @@ while IFS='	' read -r slug name badge scion_id short; do
     # to slug, which is correct whenever slug == runtime_short (speaker/helix).
     short=${short:-$slug}
     name_sed=$(escape_sed_replacement "$name")
+
+    # Per-Scion telemetry tokens: when the forge-web admin token is wired
+    # up (prod mode), fetch each Scion's raven/morpheus tokens and export
+    # them so envsubst injects the per-Scion bearer. This covers
+    # dynamically-provisioned Scions whose tokens aren't hardcoded in the
+    # compose env (only speaker/helix are). Best-effort: on any failure the
+    # token env var stays as-is — public telemetry still works; admin
+    # telemetry for that Scion degrades to a 401 the operator can diagnose.
+    if [ -n "$FORGE_WEB_ADMIN_TOKEN" ] && [ -n "$NOOSCOPE_HOST" ]; then
+        _ttok=$(fetch_telemetry_tokens "$scion_id")
+        if [ -n "$_ttok" ]; then
+            _rv=$(printf '%s' "$_ttok" | jq -r '.raven_token // ""')
+            _mp=$(printf '%s' "$_ttok" | jq -r '.morpheus_token // ""')
+            [ -n "$_rv" ] && export "RAVEN_TOKEN_${slug_upper}=${_rv}"
+            [ -n "$_mp" ] && export "MORPHEUS_TOKEN_${slug_upper}=${_mp}"
+        fi
+    fi
 
     # The order of substitutions matters: __SLUG_VAR__ and __SLUG_UPPER__
     # both contain __SLUG__ as a substring, so we replace the more
