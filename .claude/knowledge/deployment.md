@@ -10,6 +10,21 @@ docker compose -f C:/Users/ronin/Documents/Projects/MindHive/docker-compose.yml 
 
 Then visit `http://localhost:8080` (`index.html`) or `http://localhost:8080/dreams.html`. Rebuild after any change to HTML, CSS, JS, `nginx.conf`, or the `Dockerfile` that needs live testing against the backend services.
 
+## Line endings — `*.sh` must stay LF
+
+`docker-entrypoint.sh` is `COPY`'d into the image and exec'd by `/bin/sh`. If it carries
+CRLF terminators the kernel looks for `/bin/sh\r`, the container crash-loops, and
+`docker logs` shows `exec /docker-entrypoint.sh: no such file or directory`. A Windows
+clone with `git config core.autocrlf=true` will mangle the checkout this way even though
+the committed blob is LF — so a local rebuild fails while the Pi (Linux) deploy is fine.
+`.gitattributes` pins `*.sh` to `eol=lf` to prevent this; if you hit the crash-loop,
+check the on-disk EOL (`file docker-entrypoint.sh`) and renormalize
+(`rm docker-entrypoint.sh && git checkout -- docker-entrypoint.sh`).
+
+When adding a root HTML page, also add it to the `COPY` line in the `Dockerfile` — root
+HTML files are listed individually (not globbed), unlike `css/` and `js/` which copy
+wholesale.
+
 ## Why not `python -m http.server`?
 
 Several pages — `dreams.html` and anything calling the Morpheus REST API — require a same-origin proxy that routes `/morpheus/` to PersonaForge and `/ws/telemetry` to Engram. The nginx container in `Dockerfile` is what provides that. A bare static server skips the proxy and trips CORS on the first API call.
