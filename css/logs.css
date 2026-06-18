@@ -1,0 +1,180 @@
+/* Nooscope — Container Log Inspector (Nooscope-lginsp).
+   Admin-only viewer for a Scion's PersonaForge container logs. Monospace,
+   terminal-flavored; severity drives the row accent color. Self-contained:
+   this page loads only style.css + logs.css, so the few shared widgets
+   (live-dot, empty-state, refresh spinner) are redefined here. */
+
+.logs-page {
+  overflow: hidden;
+}
+
+/* --- Controls bar (under the status bar) --- */
+#logs-controls {
+  position: fixed;
+  top: 41px;
+  left: 0;
+  right: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 16px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+#level-tabs {
+  display: flex;
+  gap: 2px;
+}
+
+.level-tab {
+  background: var(--bg-input);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  font-weight: normal;
+  padding: 4px 12px;
+  border-radius: 0;
+}
+#level-tabs .level-tab:first-child { border-radius: 3px 0 0 3px; }
+#level-tabs .level-tab:last-child  { border-radius: 0 3px 3px 0; }
+
+.level-tab.active[data-level="all"]   { color: var(--accent-cyan);   border-color: var(--accent-cyan); }
+.level-tab.active[data-level="warn"]  { color: var(--status-reconnecting); border-color: var(--status-reconnecting); }
+.level-tab.active[data-level="error"] { color: var(--status-disconnected);  border-color: var(--status-disconnected); }
+
+#logs-filter {
+  width: 200px;
+}
+
+.tail-label, .wrap-label {
+  color: var(--text-dim);
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#tail-select { padding: 3px 6px; }
+
+.ghost-btn {
+  background: var(--bg-input);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  font-size: 12px;
+  padding: 4px 10px;
+}
+.ghost-btn.paused {
+  color: var(--accent-green);
+  border-color: var(--accent-green);
+}
+
+#refresh-btn {
+  background: var(--bg-input);
+  color: var(--accent-cyan);
+  border: 1px solid var(--border);
+  font-size: 13px;
+  padding: 3px 9px;
+  min-width: 28px;
+}
+#refresh-btn.spinning {
+  animation: spin 0.6s linear infinite;
+}
+@keyframes spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+
+/* --- Live dot (auto-refresh state) --- */
+.live-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin: 0 4px;
+  vertical-align: middle;
+  background: #444;
+  transition: background 0.2s ease;
+}
+.live-dot.live    { background: #4caf50; box-shadow: 0 0 6px rgba(76,175,80,0.6); }
+.live-dot.offline { background: #444; }
+
+/* --- Log viewport --- */
+#logs-viewport {
+  position: fixed;
+  top: 80px;       /* status bar (~41) + controls (~39) */
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow-y: auto;
+  overflow-x: auto;
+  background: #07070f;
+  padding: 8px 0;
+}
+
+#log-lines {
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  min-width: 100%;
+}
+
+.log-row {
+  display: flex;
+  gap: 12px;
+  padding: 1px 16px;
+  white-space: pre;            /* preserve indentation; horizontal scroll */
+  border-left: 3px solid transparent;
+}
+.log-row:hover { background: rgba(255, 255, 255, 0.03); }
+
+#log-lines.wrap .log-row {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.log-ts {
+  color: var(--text-dim);
+  flex: 0 0 auto;
+  opacity: 0.7;
+}
+
+.log-lvl {
+  flex: 0 0 56px;
+  font-weight: bold;
+  text-align: right;
+}
+
+.log-msg {
+  flex: 1 1 auto;
+  color: var(--text-primary);
+}
+
+/* Severity buckets — accent the left border + the level tag. */
+.log-row.level-error  { border-left-color: var(--status-disconnected); background: rgba(255, 74, 74, 0.06); }
+.log-row.level-error  .log-lvl { color: var(--status-disconnected); }
+.log-row.level-warn   { border-left-color: var(--status-reconnecting); }
+.log-row.level-warn   .log-lvl { color: var(--status-reconnecting); }
+.log-row.level-info   .log-lvl { color: var(--accent-blue); }
+.log-row.level-debug  { opacity: 0.7; }
+.log-row.level-debug  .log-lvl { color: var(--text-dim); }
+.log-row.level-plain  .log-lvl { color: var(--text-dim); }
+
+.log-empty-note {
+  padding: 24px 16px;
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+/* --- Empty / error state --- */
+.empty-state {
+  position: fixed;
+  top: 80px;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-dim);
+  font-style: italic;
+  z-index: 40;
+}

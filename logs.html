@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nooscope — Logs</title>
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/logs.css">
+</head>
+<body class="logs-page">
+
+  <!-- Status bar -->
+  <div id="status-bar">
+    <div class="status-left">
+      <span class="logo">Nooscope</span>
+      <nav class="nav-links">
+        <a href="index.html" class="nav-link">Activity</a>
+        <a href="dreams.html" class="nav-link">Dreams</a>
+        <a href="social.html" class="nav-link">Social</a>
+        <a href="logs.html" class="nav-link active">Logs</a>
+      </nav>
+      <select id="scion-select"></select>
+      <button id="refresh-btn" title="Reload now">&#8635;</button>
+    </div>
+    <div class="status-right">
+      <span id="mode-badge" class="mode-badge public">PUBLIC</span>
+      <button id="admin-toggle-btn" class="admin-btn" title="Admin login">&#128274;</button>
+      <span id="poll-dot" class="live-dot offline" title="Auto-refresh: paused"></span>
+      <span id="updated-stat" class="stat">—</span>
+      <span id="count-stat" class="stat">—</span>
+    </div>
+  </div>
+
+  <!-- Admin login modal is installed by js/auth.js (Nooscope-r5kh) -->
+
+  <!-- Controls -->
+  <div id="logs-controls">
+    <div id="level-tabs" role="tablist">
+      <button class="level-tab active" data-level="all">Full</button>
+      <button class="level-tab" data-level="warn">Warnings</button>
+      <button class="level-tab" data-level="error">Errors</button>
+    </div>
+    <input type="text" id="logs-filter" placeholder="Filter text…" autocomplete="off">
+    <label class="tail-label">Tail
+      <select id="tail-select">
+        <option value="50" selected>50</option>
+        <option value="100">100</option>
+        <option value="200">200</option>
+        <option value="500">500</option>
+      </select>
+    </label>
+    <button id="pause-btn" class="ghost-btn" title="Pause / resume auto-refresh">⏸ Pause</button>
+    <label class="wrap-label"><input type="checkbox" id="wrap-toggle"> wrap</label>
+  </div>
+
+  <!-- Log viewport -->
+  <div id="logs-viewport">
+    <div id="log-lines"></div>
+  </div>
+
+  <!-- Empty / error state -->
+  <div id="logs-empty" class="empty-state">
+    <p id="empty-message">Admin login required to view container logs.</p>
+  </div>
+
+  <!-- App modules -->
+  <script src="js/config.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/logs.js"></script>
+</body>
+</html>
