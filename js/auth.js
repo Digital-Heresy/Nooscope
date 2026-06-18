@@ -117,8 +117,8 @@
     // sessionStorage's lifetime, which is the source of truth.
     // `Secure` only when actually served over HTTPS — plain-HTTP
     // localhost dev would silently fail to set the cookie otherwise
-    // (Nooscope-03z5 deferred touch, landed for the noo.thriden.dev
-    // deploy posture).
+    // (Nooscope-03z5 deferred touch). Works for any operator-fronted
+    // HTTPS ingress; no specific hostname required.
     document.cookie = `${COOKIE_KEY}=1; Path=/; SameSite=Strict${cookieSecureAttr()}`;
     notify(true);
     return { ok: true };
