@@ -113,8 +113,12 @@ function wireUI() {
 
   for (const tab of document.querySelectorAll('.level-tab')) {
     tab.addEventListener('click', () => {
-      document.querySelectorAll('.level-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.level-tab').forEach(t => {
+        t.classList.remove('active');
+        t.setAttribute('aria-selected', 'false');
+      });
       tab.classList.add('active');
+      tab.setAttribute('aria-selected', 'true');
       LogState.levelTab = tab.dataset.level;
       renderLines();
     });
@@ -158,7 +162,13 @@ function applyAdminGate() {
 
   controls.classList.remove('hidden');
   const selected = document.getElementById('scion-select').value;
-  if (selected) selectScion(selected);
+  if (selected) {
+    selectScion(selected);
+  } else {
+    // No scions in config — show a helpful message rather than leaving
+    // the "Admin login required" copy from the initial HTML state.
+    showEmpty('No Scions configured in NOOSCOPE_CONFIG.');
+  }
 }
 
 function selectScion(scionId) {
@@ -231,7 +241,11 @@ async function fetchLogs({ spin = false } = {}) {
     if (resp.status === 401) {
       stopPolling();
       showEmpty('Admin token rejected. Try logging in again.');
-      if (!isAdmin()) NooscopeAuth.openModal();
+      // Clear local auth state unconditionally — nginx cookie and sessionStorage
+      // can desync (cookie expiry, browser restart). Always open the modal so
+      // recovery doesn't require a manual page reload.
+      NooscopeAuth.logout();
+      NooscopeAuth.openModal();
       return;
     }
     if (resp.status === 404) {
@@ -374,7 +388,13 @@ function hideEmpty() {
 // --- Helpers ---
 function formatTs(ts) {
   if (!ts) return '';
-  const d = new Date(ts);
+  // RFC3339 timestamps from the backend may carry microsecond precision
+  // (e.g. "2026-01-15T12:34:56.123456Z"). Browsers handle >3 fractional
+  // digits inconsistently — truncate to milliseconds before parsing.
+  const normalised = typeof ts === 'string'
+    ? ts.replace(/(\.\d{3})\d+(Z|[+-]|$)/, '$1$2')
+    : ts;
+  const d = new Date(normalised);
   if (isNaN(d.getTime())) return String(ts);
   return d.toLocaleTimeString('en-US', { hour12: false }) +
     '.' + String(d.getMilliseconds()).padStart(3, '0');

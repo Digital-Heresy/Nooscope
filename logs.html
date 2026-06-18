@@ -39,10 +39,10 @@
 
   <!-- Controls -->
   <div id="logs-controls">
-    <div id="level-tabs" role="tablist">
-      <button class="level-tab active" data-level="all">Full</button>
-      <button class="level-tab" data-level="warn">Warnings</button>
-      <button class="level-tab" data-level="error">Errors</button>
+    <div id="level-tabs" role="tablist" aria-label="Log level filter">
+      <button class="level-tab active" role="tab" aria-selected="true" data-level="all">Full</button>
+      <button class="level-tab" role="tab" aria-selected="false" data-level="warn">Warnings</button>
+      <button class="level-tab" role="tab" aria-selected="false" data-level="error">Errors</button>
     </div>
     <input type="text" id="logs-filter" placeholder="Filter text…" autocomplete="off">
     <label class="tail-label">Tail
