@@ -161,8 +161,11 @@
     for (const el of document.querySelectorAll('[data-public-only]')) {
       el.classList.toggle('hidden', admin);
     }
-    // Social link is admin-only by policy (Nooscope-r5kh per-page UX).
-    for (const link of document.querySelectorAll('a.nav-link[href="social.html"]')) {
+    // Social + Logs links are admin-only by policy (Nooscope-r5kh per-page
+    // UX; Logs added in Nooscope-lginsp — both are operator tools that hit
+    // admin-gated forge-web routes, so they stay hidden in public mode).
+    for (const link of document.querySelectorAll(
+      'a.nav-link[href="social.html"], a.nav-link[href="logs.html"]')) {
       link.classList.toggle('hidden', !admin);
     }
     // Mode badge + lock icon, if present.

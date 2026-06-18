@@ -1,0 +1,6 @@
+# Shell scripts are COPY'd into Linux containers and exec'd by /bin/sh.
+# CRLF terminators make the kernel look for `/bin/sh\r` and the container
+# crash-loops with "no such file or directory". Force LF regardless of a
+# Windows clone's core.autocrlf setting.
+*.sh text eol=lf
+docker-entrypoint.sh text eol=lf
