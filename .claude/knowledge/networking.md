@@ -88,3 +88,5 @@ Internal service-to-service traffic (mongodb, engram → forge, nooscope → for
 ## Admin gate on forge-web
 
 `/admin/scions/` proxies to `forge-web:8200`, which has no app-layer auth (it's designed to bind 127.0.0.1 on its host). Post-r5kh, the gateway checks `$cookie_nooscope_admin` and the SPA sets that cookie only after a password match against the SHA-256 `adminHash` baked into `config.js`. The gateway then injects the real `Authorization: Bearer $FORGE_WEB_ADMIN_TOKEN` upstream. Anyone can forge the cookie value `1` from the browser, so this still isn't real auth — it just blocks drive-by access and matches the admin/public-mode pattern across the rest of the gateway. Replacing it with real HMAC-signed session cookies is its own bean.
+
+Because the block matches the whole `/admin/scions/` prefix and forwards any subpath verbatim, every forge-web admin read-API rides it with **no new nginx block** — `/scions/{id}/social-graph` (Nooscope-nkvw) and `/scions/{id}/logs` (Nooscope-lginsp) both reach forge-web through this one location. A new admin read-API only needs a route under forge-web's `/scions/{id}/...` namespace; the gateway side is already done.

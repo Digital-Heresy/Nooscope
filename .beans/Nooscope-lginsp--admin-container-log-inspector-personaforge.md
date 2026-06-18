@@ -76,18 +76,15 @@ GET /scions/{scion_id}/logs?lines=N        (admin-bearer authed, same as other /
   `404` → "forge-web may not expose container logs yet", other non-2xx → status-line
   note while keeping the existing buffer + poll alive.
 
-### Handoff blurb (relay to the PersonaForge repo)
+### As shipped on forge-web
 
-> **Nooscope needs a forge-web log-tail endpoint** for the new admin log inspector.
-> Add `GET /scions/{scion_id}/logs?lines=N` to the admin web (`personaforge-web`,
-> the same surface that serves `/scions` and `/scions/{id}/social-graph`). It should
-> resolve the scion to its `forge-<runtime_short>` container and return the last N
-> lines of `docker logs` (stdout+stderr, with timestamps) as JSON
-> `{ scion_id, service, lines: [{ ts, level, message }] }`. `level` best-effort from
-> the log prefix; oldest→newest. Same admin-bearer auth as the other `/scions` routes —
-> Nooscope's gateway injects `Authorization: Bearer <FORGE_WEB_ADMIN_TOKEN>` and gates
-> on the `nooscope_admin` cookie, so no app-layer auth change is needed. Nooscope polls
-> it every ~4s at tail sizes 50–500.
+Implemented in `forge/admin/web/routes/logs.py` (PF #158). It resolves the scion to
+its `forge-<runtime_short>` container by compose-service label and reads logs over the
+Docker Engine API — a read-only `docker-socket-proxy` (`DOCKER_HOST=tcp://docker-socket-proxy:2375`)
+in prod, raw unix socket otherwise — so forge-web needs neither the docker CLI nor extra
+privileges. `tail` clamps to 1..2000 (default 200). Same admin-bearer auth as the other
+`/scions` routes; Nooscope's gateway injects the bearer and gates on the `nooscope_admin`
+cookie, so no app-layer change was needed.
 
 ## Out of scope for v0 (deferred)
 
