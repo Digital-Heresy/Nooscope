@@ -1,15 +1,15 @@
 ---
 # Nooscope-lginsp
 title: Container log inspector — admin-only viewer for a Scion's PersonaForge container logs
-status: in-progress
+status: done
 type: feature
 created_at: 2026-06-17T00:00:00Z
-updated_at: 2026-06-17T00:00:00Z
+updated_at: 2026-06-18T00:00:00Z
 ---
 
 Admin-only page (`logs.html`) that watches a single Scion's **PersonaForge container** docker logs. PF is where most operational issues surface (uvicorn tracebacks, Morpheus render failures, first-run startup crashes) — far more than Engram or forge-web — so the v0 target is the `forge-<short>` container specifically.
 
-Frontend + nginx routing shipped on the Nooscope side. The **backend log-tail endpoint on forge-web is the open dependency** (handoff to the PersonaForge repo — see contract below).
+Both halves shipped: the Nooscope frontend + nginx routing (this repo, PR #9) and the forge-web log-tail endpoint (PersonaForge #158, live on the Pi at forge-web rev ea471cc; verified end-to-end). The shipped backend contract matches the contract drafted below exactly.
 
 ## Why
 
@@ -40,9 +40,9 @@ The **existing** `location /admin/scions/` block in `nginx.conf.template` alread
 
 So the backend route just has to live under forge-web's `/scions/{scion_id}/...` namespace and the gate covers it for free. `proxy_read_timeout` there is 60s — fine for a `docker logs --tail` snapshot.
 
-## Backend contract (OPEN — handoff to PersonaForge / forge-web)
+## Backend contract (SHIPPED — PersonaForge #158, `forge/admin/web/routes/logs.py`)
 
-forge-web runs on the host and can reach the docker socket / `docker logs`. Add:
+forge-web reads container logs over the Docker Engine API (a read-only `docker-socket-proxy` via `DOCKER_HOST` in prod; raw unix socket otherwise) — no docker CLI, no extra privileges. The shipped route:
 
 ```
 GET /scions/{scion_id}/logs?lines=N        (admin-bearer authed, same as other /scions admin routes)
@@ -102,16 +102,16 @@ GET /scions/{scion_id}/logs?lines=N        (admin-bearer authed, same as other /
 
 ## Acceptance check
 
-[ ] In admin mode, selecting a Scion renders its PF container's last N log lines, newest at bottom.
-[ ] Full / Warnings / Errors tabs filter the buffer client-side without a refetch.
-[ ] Auto-poll keeps the view current (~4s); Pause stops it; tab-hide pauses automatically.
-[ ] Tail selector (50/100/200/500) refetches at the new depth.
-[ ] Public mode hides the Logs nav link and gates the page behind the login modal.
-[ ] 401 → re-login prompt; 404/missing endpoint → friendly message, no console spew.
-[ ] Backend `/scions/{id}/logs` shipped on forge-web and reachable via `/admin/scions/{id}/logs`.
+[x] In admin mode, selecting a Scion renders its PF container's last N log lines, newest at bottom.
+[x] Full / Warnings / Errors tabs filter the buffer client-side without a refetch.
+[x] Auto-poll keeps the view current (~4s); Pause stops it; tab-hide pauses automatically.
+[x] Tail selector (50/100/200/500) refetches at the new depth.
+[x] Public mode hides the Logs nav link and gates the page behind the login modal.
+[x] 401 → re-login prompt; 404/missing endpoint → friendly message, no console spew.
+[x] Backend `/scions/{id}/logs` shipped on forge-web (PF #158) and reachable via `/admin/scions/{id}/logs`; verified end-to-end on the Pi.
 
 ## Origin / coordination
 
 - Reuses the `/admin/scions/` gateway gate from Nooscope-r5kh (admin cookie → forge-web bearer).
 - Scion selector + `scion_id` plumbing from Nooscope-de9m (config.js roster).
-- Backend endpoint is a PersonaForge / forge-web handoff (see blurb above) — the only blocker on the acceptance check's last two boxes.
+- Backend log-tail endpoint: **PersonaForge #158** (merged; `forge/admin/web/routes/logs.py`), forge-web live on the Pi at rev ea471cc. The shipped route/shape match this bean's contract one-to-one, so the frontend consumes it with no further change.

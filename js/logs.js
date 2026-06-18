@@ -36,8 +36,8 @@ const DEFAULT_TAIL = 50;
 // `level` when it can parse one, but we re-derive defensively from the message
 // when it's absent (older forge-web, or lines the parser couldn't classify).
 // Ranked low→high so the Warnings/Errors tabs are simple threshold checks.
-const LEVEL_RANK = { debug: 0, info: 1, notice: 1, warning: 2, warn: 2, error: 3, critical: 4, fatal: 4 };
-const LEVEL_PATTERN = /\b(CRITICAL|FATAL|ERROR|WARNING|WARN|NOTICE|INFO|DEBUG)\b/;
+const LEVEL_RANK = { trace: 0, debug: 0, info: 1, notice: 1, warning: 2, warn: 2, error: 3, critical: 4, fatal: 4 };
+const LEVEL_PATTERN = /\b(CRITICAL|FATAL|ERROR|WARNING|WARN|NOTICE|INFO|DEBUG|TRACE)\b/;
 
 // Tab → minimum rank shown. 'warn' shows warning and above; 'error' shows
 // error and above; 'all' shows everything (including unclassified lines).
