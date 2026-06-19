@@ -104,6 +104,12 @@ server {
         if ($cookie_nooscope_admin != "1") {
             return 401;
         }
+        # The bare roster endpoint maps to forge-web's /scions (NO trailing
+        # slash). The generic rewrite below would yield /scions/, which
+        # forge-web 307-redirects (FastAPI redirect_slashes) to an internal
+        # localhost URL the browser can't follow — an empty roster in the
+        # log inspector. Strip the trailing slash for the bare list first.
+        rewrite ^/admin/scions/?$ /scions break;
         rewrite ^/admin(/.*)$ $1 break;
         proxy_pass http://$forge_web;
         proxy_set_header Host $host;
