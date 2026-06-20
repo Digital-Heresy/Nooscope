@@ -82,7 +82,7 @@ server {
     }
 
     # Static assets with caching
-    location ~* \.(js|css|png|ico|jpg|svg|woff2?)$ {
+    location ~* \.(js|css|png|ico|jpg|svg|woff2?|obj)$ {
         expires 1h;
         add_header Cache-Control "public, immutable";
     }
@@ -127,8 +127,17 @@ server {
         proxy_hide_header Access-Control-Max-Age;
     }
 
-    # SPA fallback
+    # SPA fallback. no-store is deliberate: when a per-Scion API route is
+    # transiently missing — a deploy race, or the CRLF marker-splice bug
+    # (Nooscope-dyez) — a request like /<slug>/morpheus/dreams falls through
+    # here and returns 200 + index.html. Without no-store the browser
+    # heuristically caches that HTML (the fallback emits Last-Modified/ETag
+    # but no Cache-Control) and then replays it for the fetch() that expects
+    # JSON, surfacing as "Unexpected token '<', <!DOCTYPE" long after the
+    # server is fixed. no-store keeps a stale mis-route from poisoning the
+    # cache. Static assets keep their own caching via the regex location above.
     location / {
         try_files $uri $uri/ /index.html;
+        add_header Cache-Control "no-store" always;
     }
 }
