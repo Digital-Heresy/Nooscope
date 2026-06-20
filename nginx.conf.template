@@ -82,7 +82,7 @@ server {
     }
 
     # Static assets with caching
-    location ~* \.(js|css|png|ico|jpg|svg|woff2?)$ {
+    location ~* \.(js|css|png|ico|jpg|svg|woff2?|obj)$ {
         expires 1h;
         add_header Cache-Control "public, immutable";
     }
