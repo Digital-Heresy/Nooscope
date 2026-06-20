@@ -458,6 +458,14 @@ done < "$SCION_TSV"
 
 # --- 6. Splice fragments into the template + envsubst ---
 awk -v maps_file="$MAPS_FRAGMENT" -v blocks_file="$BLOCKS_FRAGMENT" '
+    # Strip a trailing CR first so a CRLF-checked-out template (a Windows
+    # clone whose .gitattributes eol=lf rule did not win, or a local
+    # docker build off a CRLF working tree) still matches the exact-line
+    # markers below. Without this the splice silently no-ops and every
+    # per-Scion /morpheus + /ws/telemetry route 404s to the SPA fallback,
+    # surfacing as "<!DOCTYPE" / "Unexpected token <" in dreams.js & co.
+    # Stripping CR from every line also normalizes the emitted config to LF.
+    { sub(/\r$/, "") }
     # Exact-match the marker line so prose mentions of the placeholder in
     # the template header comment do not trigger splicing.
     $0 == "# {{SCION_MAPS}}" {

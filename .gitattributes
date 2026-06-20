@@ -4,3 +4,12 @@
 # Windows clone's core.autocrlf setting.
 *.sh text eol=lf
 docker-entrypoint.sh text eol=lf
+
+# The nginx config template is COPY'd into the image and marker-spliced by
+# an awk exact-line match in docker-entrypoint.sh (`$0 == "# {{SCION_MAPS}}"`).
+# A CRLF terminator makes the line `...}}\r`, the exact-match silently fails,
+# and every per-Scion /morpheus + /ws/telemetry route vanishes (falls through
+# to the SPA fallback → "<!DOCTYPE" instead of JSON). Force LF.
+nginx.conf.template text eol=lf
+*.template text eol=lf
+*.conf text eol=lf
