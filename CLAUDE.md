@@ -19,6 +19,10 @@ Topic-specific reference docs live in `.claude/knowledge/`. When working on a su
 - `deployment.md` — Docker rebuild workflow, compose service shape, container security posture, image-choice rules under `cap_drop: ALL`
 - `networking.md` — nginx variable-`proxy_pass` + path-rewrite pattern, CORS-at-the-gateway rule, container outbound DNS override, admin gate on forge-web
 
+## Versioning
+
+This repo ships the **nooscope** image (`ghcr.io/digital-heresy/nooscope`) under Thriden per-component semver. **Version-of-record: the `VERSION` file** (repo root) — a `vX.Y.Z` git tag must match it (bump `VERSION` in the same change, then tag; `release.yml` builds the GHCR image on the tag). The full scheme — bump rules, the umbrella release procedure, the preflight gate — lives in **`../MindHive/docs/versioning.md`**, and the **`/release` skill** (in MindHive) encodes the mint mechanics.
+
 ## Development
 
 Open `index.html` directly in a browser for static testing, or rebuild the Docker container (see `knowledge/deployment.md`) to test against the live Engram + PF backends. URL params for auto-connect: `?scion=speaker`, `?scion=helix`, `?thriden=3030&pf=8100`.
