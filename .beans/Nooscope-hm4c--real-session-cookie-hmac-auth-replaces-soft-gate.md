@@ -1,11 +1,21 @@
 ---
 # Nooscope-hm4c
 title: 'Real session-cookie HMAC auth — replace the forgeable nooscope_admin=1 soft gate'
-status: todo
+status: done
 type: task
 created_at: 2026-06-22T00:00:00Z
 updated_at: 2026-06-22T00:00:00Z
 ---
+
+**Implemented in PR #15** (approach 1, njs HMAC). `njs/nooscope-auth.js` verifies
+an HMAC-signed `nooscope_admin=<exp>.<hmac>` cookie server-side via `$admin_valid`;
+`POST /admin/login` verifies the password against `$admin_hash` and issues the
+HttpOnly cookie; all admin gates + the morpheus map key off `$admin_valid`.
+config.js ships only `adminConfigured`. Hardened per security + Copilot review:
+same-origin CSRF guard, login rate-limit + 4k body cap, 2h TTL, secret-override
+charset validation, logout POST-only. Acceptance verified live (forged cookie →
+401, tampered sig → 401, real login → 200 → admin access).
+
 
 The admin gate is cryptographically a no-op. Today's flow (Nooscope-r5kh):
 

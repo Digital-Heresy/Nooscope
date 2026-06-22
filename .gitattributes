@@ -13,3 +13,8 @@ docker-entrypoint.sh text eol=lf
 nginx.conf.template text eol=lf
 *.template text eol=lf
 *.conf text eol=lf
+
+# JS is served to browsers and, for njs/nooscope-auth.js (Nooscope-hm4c),
+# COPY'd into the image and loaded by the nginx js module. Keep LF everywhere
+# for consistency with the CRLF-sensitive surfaces above.
+*.js text eol=lf
