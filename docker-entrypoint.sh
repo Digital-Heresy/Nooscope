@@ -339,11 +339,20 @@ refresh_config_js() {
     jq -r "$SCIONS_TSV_JQ" "$_r_body" > "$_r_tsv" 2>/dev/null || return 0
     # Membership guard: field-only refresh. A changed slug set needs the nginx
     # per-Scion blocks regenerated + reload — leave that to a restart, just log.
+    # De-dupe the warning (_LAST_MISMATCH_SLUGS persists across ticks in the
+    # refresher subshell): a standing membership change otherwise logs a line
+    # every interval. Log once per distinct mismatching slug set.
     _r_slugs=$(cut -f1 "$_r_tsv" | sort | tr '\n' ' ')
     if [ "$_r_slugs" != "$BOOT_SCION_SLUGS" ]; then
-        echo "Nooscope: /scions roster membership changed; restart to update routes (config.js fields not refreshed)"
+        if [ "$_r_slugs" != "$_LAST_MISMATCH_SLUGS" ]; then
+            echo "Nooscope: /scions roster membership changed; restart to update routes (config.js fields not refreshed)"
+            _LAST_MISMATCH_SLUGS="$_r_slugs"
+        fi
         return 0
     fi
+    # Back in sync with the boot roster — clear the memo so a later divergence
+    # logs again.
+    _LAST_MISMATCH_SLUGS=""
     # Atomic swap so a half-written config.js is never served.
     write_config_js "${CONFIG_PATH}.tmp" "$_r_tsv" || return 0
     mv -f "${CONFIG_PATH}.tmp" "$CONFIG_PATH"
