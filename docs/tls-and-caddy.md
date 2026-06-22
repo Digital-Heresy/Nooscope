@@ -20,10 +20,13 @@ per-upstream bearer injection (`NOOSCOPE_ADMIN_PASSWORD`,
 the operator just needs to ensure the connection from their ingress to
 the container is on a trusted network segment.
 
-The `Secure` cookie attribute in `js/auth.js` (`cookieSecureAttr()`)
-is already set at runtime whenever the browser sees the page over
-`https:`, so HTTPS via an external tunnel works correctly without any
-image-side change.
+The `Secure` attribute on the admin session cookie is set server-side by
+the njs login handler (`njs/nooscope-auth.js`, Nooscope-hm4c) whenever the
+request arrives with `X-Forwarded-Proto: https` — i.e. whenever the ingress
+terminates TLS and forwards that header. On a plain-HTTP segment the flag is
+omitted so the cookie still sets. HTTPS via an external tunnel therefore works
+correctly without any image-side change, as long as the tunnel forwards
+`X-Forwarded-Proto`.
 
 See the Thriden quickstart in MindHive's deploy docs for the
 recommended tunnel setup.

@@ -1,25 +1,26 @@
 /**
- * Shared admin-mode auth (Nooscope-r5kh).
+ * Shared admin-mode auth (Nooscope-r5kh; HMAC session cookies Nooscope-hm4c).
  *
- * Replaces the per-page raven/morpheus token dialogs with a single
- * Nooscope-level password gate. The plaintext password never leaves the
- * browser; we SHA-256 it via Web Crypto and compare to the digest baked
- * into config.js by docker-entrypoint at container start.
+ * A single Nooscope-level password gate replaces the per-page raven/morpheus
+ * token dialogs. As of hm4c the password is verified SERVER-SIDE: login POSTs
+ * the plaintext to /admin/login (same-origin), nginx's njs handler compares
+ * SHA-256(password) to the server-held digest and, on match, sets an
+ * HMAC-signed, HttpOnly session cookie that the gateway verifies on every
+ * admin request. The browser never holds the digest, never computes a hash,
+ * and never sets the cookie itself — so the cookie can't be forged client-side
+ * (the old `nooscope_admin=1` soft gate is gone).
  *
- * State lives in two places that nginx and the SPA share:
- *   sessionStorage['nooscope_admin'] = '1'   — read by the SPA
- *   document.cookie nooscope_admin=1         — read by nginx (admin gate)
- *
- * Both are wiped on logout. Soft-gate threat model — anyone with shell on
- * the host can forge the cookie. Real session-cookie HMAC is the
- * network-facing follow-up bean (kyyw note); intentionally not built here.
+ * Client-side state is just a hint for the SPA's own visibility toggles:
+ *   sessionStorage['nooscope_admin'] = '1'   — read by isAdmin()
+ * The real authority is the HttpOnly cookie, which JS cannot read or write;
+ * logout POSTs /admin/logout to have the server expire it. config.js carries
+ * only `adminConfigured` (boolean), never the password digest.
  */
 
 (function (global) {
   'use strict';
 
   const SESSION_KEY = 'nooscope_admin';
-  const COOKIE_KEY  = 'nooscope_admin';
   const listeners = new Set();
 
   function isAdmin() {
@@ -28,113 +29,54 @@
 
   // Configured = entrypoint had NOOSCOPE_ADMIN_PASSWORD set. When unset
   // (dev quick-starts, hostile envs), the UI omits the lock icon entirely
-  // rather than offering a login that can't succeed.
+  // rather than offering a login that can't succeed. config.js exposes this
+  // as a boolean (hm4c) — the password digest stays server-side now.
   //
   // Note: NOOSCOPE_CONFIG is declared with `const` in config.js — top-level
   // `const` lives in the global lexical scope, NOT on `window`. Reference
   // the bare name, not `window.NOOSCOPE_CONFIG` (which would be undefined).
   function isConfigured() {
-    return !!(typeof NOOSCOPE_CONFIG !== 'undefined' && NOOSCOPE_CONFIG.adminHash);
-  }
-
-  async function sha256Hex(text) {
-    const buf = new TextEncoder().encode(text);
-    // Web Crypto (crypto.subtle) is only available in a SECURE CONTEXT —
-    // HTTPS or localhost. Behind an operator's plain-HTTP ingress (e.g.
-    // http://<lan-ip>:8080) it's undefined, which threw
-    // "Cannot read properties of undefined (reading 'digest')" and blocked
-    // admin login. Fall back to a pure-JS SHA-256 there. Output is identical
-    // (lowercase hex digest), so it matches the server-computed adminHash.
-    if (typeof crypto !== 'undefined' && crypto.subtle) {
-      const digest = await crypto.subtle.digest('SHA-256', buf);
-      return Array.from(new Uint8Array(digest))
-        .map(b => b.toString(16).padStart(2, '0'))
-        .join('');
-    }
-    return sha256Fallback(buf);
-  }
-
-  // Pure-JS SHA-256 (FIPS 180-4) over a Uint8Array → lowercase hex. Used only
-  // when crypto.subtle is unavailable (insecure context). Byte-for-byte
-  // compatible with crypto.subtle's SHA-256.
-  function sha256Fallback(bytes) {
-    const rr = (x, n) => (x >>> n) | (x << (32 - n));
-    const K = [
-      0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
-      0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
-      0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
-      0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
-      0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
-      0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
-      0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
-      0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];
-    let H = [0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];
-    const l = bytes.length;
-    const bitLen = l * 8;
-    const withOne = l + 1;
-    const pad = (56 - (withOne % 64) + 64) % 64;
-    const total = withOne + pad + 8;
-    const m = new Uint8Array(total);
-    m.set(bytes);
-    m[l] = 0x80;
-    const dv = new DataView(m.buffer);
-    dv.setUint32(total - 8, Math.floor(bitLen / 0x100000000), false);
-    dv.setUint32(total - 4, bitLen >>> 0, false);
-    const w = new Uint32Array(64);
-    for (let i = 0; i < total; i += 64) {
-      for (let t = 0; t < 16; t++) w[t] = dv.getUint32(i + t * 4, false);
-      for (let t = 16; t < 64; t++) {
-        const s0 = rr(w[t-15],7) ^ rr(w[t-15],18) ^ (w[t-15] >>> 3);
-        const s1 = rr(w[t-2],17) ^ rr(w[t-2],19) ^ (w[t-2] >>> 10);
-        w[t] = (w[t-16] + s0 + w[t-7] + s1) >>> 0;
-      }
-      let [a,b,c,d,e,f,g,h] = H;
-      for (let t = 0; t < 64; t++) {
-        const S1 = rr(e,6) ^ rr(e,11) ^ rr(e,25);
-        const ch = (e & f) ^ (~e & g);
-        const t1 = (h + S1 + ch + K[t] + w[t]) >>> 0;
-        const S0 = rr(a,2) ^ rr(a,13) ^ rr(a,22);
-        const maj = (a & b) ^ (a & c) ^ (b & c);
-        const t2 = (S0 + maj) >>> 0;
-        h=g; g=f; f=e; e=(d + t1) >>> 0; d=c; c=b; b=a; a=(t1 + t2) >>> 0;
-      }
-      H = [(H[0]+a)>>>0,(H[1]+b)>>>0,(H[2]+c)>>>0,(H[3]+d)>>>0,
-           (H[4]+e)>>>0,(H[5]+f)>>>0,(H[6]+g)>>>0,(H[7]+h)>>>0];
-    }
-    return H.map(x => (x >>> 0).toString(16).padStart(8, '0')).join('');
+    return !!(typeof NOOSCOPE_CONFIG !== 'undefined' && NOOSCOPE_CONFIG.adminConfigured);
   }
 
   async function login(password) {
     if (!isConfigured()) return { ok: false, reason: 'no-admin-configured' };
     if (!password) return { ok: false, reason: 'empty-password' };
-    const digest = await sha256Hex(password);
-    if (digest !== NOOSCOPE_CONFIG.adminHash) {
-      return { ok: false, reason: 'mismatch' };
+    // Server-side verification (hm4c): POST the password same-origin; nginx's
+    // njs handler hashes + compares and, on match, sets the HttpOnly signed
+    // cookie via Set-Cookie. No client-side hashing, no client-set cookie.
+    let res;
+    try {
+      res = await fetch('/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password }),
+      });
+    } catch (e) {
+      return { ok: false, reason: 'network' };
+    }
+    if (!res.ok) {
+      // 401 = wrong password; 403 = admin not configured server-side; other =
+      // unexpected. Map to the same reasons the UI already renders.
+      return { ok: false, reason: res.status === 401 ? 'mismatch'
+        : res.status === 403 ? 'no-admin-configured' : 'error' };
     }
     sessionStorage.setItem(SESSION_KEY, '1');
-    // Path=/ so every nginx location sees it. Session-scoped (no
-    // Max-Age/Expires) so closing the tab logs you out — matches
-    // sessionStorage's lifetime, which is the source of truth.
-    // `Secure` only when actually served over HTTPS — plain-HTTP
-    // localhost dev would silently fail to set the cookie otherwise
-    // (Nooscope-03z5 deferred touch). Works for any operator-fronted
-    // HTTPS ingress; no specific hostname required.
-    document.cookie = `${COOKIE_KEY}=1; Path=/; SameSite=Strict${cookieSecureAttr()}`;
     notify(true);
     return { ok: true };
   }
 
-  function logout() {
+  async function logout() {
+    // Clear the local hint first so the UI reflects logged-out immediately,
+    // then ask the server to expire the HttpOnly cookie (JS can't touch it).
     sessionStorage.removeItem(SESSION_KEY);
-    // Expire the cookie immediately. Mirror the Secure flag from the
-    // set side so the browser matches the cookie identity correctly
-    // before applying Max-Age=0.
-    document.cookie = `${COOKIE_KEY}=; Path=/; Max-Age=0; SameSite=Strict${cookieSecureAttr()}`;
     notify(false);
-  }
-
-  function cookieSecureAttr() {
-    return location.protocol === 'https:' ? '; Secure' : '';
+    try {
+      await fetch('/admin/logout', { method: 'POST' });
+    } catch (e) {
+      // Best-effort: local state is already cleared; the cookie expires on its
+      // own TTL even if this request fails.
+    }
   }
 
   function onAdminStateChange(cb) {

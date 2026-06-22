@@ -18,6 +18,15 @@ COPY VERSION /etc/nooscope-version
 # Scion tokens into it at container start (Nooscope-r5kh).
 COPY nginx.conf.template /etc/nginx/conf.d/default.conf.template
 
+# Custom main nginx.conf — identical to the unprivileged base image's except
+# it `load_module`s ngx_http_js_module (njs), which is only valid in the main
+# context. Required by the admin session auth (Nooscope-hm4c).
+COPY nginx.main.conf /etc/nginx/nginx.conf
+
+# njs module: server-side HMAC verify of the admin session cookie + the
+# /admin/login and /admin/logout handlers (Nooscope-hm4c).
+COPY njs/nooscope-auth.js /etc/nginx/njs/nooscope-auth.js
+
 # Entrypoint generates config.js + nginx config from env / forge-web's
 # /scions registry (Nooscope-de9m). Tooling:
 #   - gettext (envsubst) — substitutes per-Scion bearer tokens into the

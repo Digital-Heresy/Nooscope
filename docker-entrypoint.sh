@@ -1,7 +1,7 @@
 #!/bin/sh
 # Container start hook (Nooscope-r5kh, Nooscope-de9m):
-#   1. Generate /js/config.js (Scion roster + adminHash) from either a
-#      hardcoded dev list ([speaker, helix]) or a live fetch of
+#   1. Generate /js/config.js (Scion roster + adminConfigured flag) from
+#      either a hardcoded dev list ([speaker, helix]) or a live fetch of
 #      forge-web's /scions JSON (Nooscope-de9m).
 #   2. Render /etc/nginx/conf.d/default.conf by:
 #        a. Replacing the {{SCION_MAPS}} and {{SCION_BLOCKS}} markers
@@ -15,10 +15,14 @@
 # nginx injects them as bearer headers on outbound proxy requests.
 #
 # Environment variables:
-#   NOOSCOPE_ADMIN_PASSWORD          plain admin password; we SHA-256 it
-#                                    and only the hex digest reaches the
-#                                    browser (config.js adminHash). Empty
+#   NOOSCOPE_ADMIN_PASSWORD          plain admin password; we SHA-256 it and
+#                                    keep the digest server-side ($admin_hash)
+#                                    for njs /admin/login to verify (hm4c). The
+#                                    browser sees only adminConfigured. Empty
 #                                    = admin login disabled (public-only).
+#   NOOSCOPE_SESSION_SECRET          optional; HMAC key for signing admin
+#                                    session cookies. Unset = fresh random key
+#                                    per boot (restart invalidates sessions).
 #   NOOSCOPE_HOST                    set for production. When set, the
 #                                    entrypoint fetches forge-web's
 #                                    /scions registry and renders prod-
@@ -54,15 +58,28 @@ BLOCK_TPL="/tmp/nginx-scion-block.tpl"
 MAPS_FRAGMENT="/tmp/scion-maps.fragment"
 BLOCKS_FRAGMENT="/tmp/scion-blocks.fragment"
 
-# --- 1. Admin password hash ---
+# --- 1. Admin password hash + session secret (Nooscope-hm4c) ---
 # SHA-256 the password and emit the lowercase hex digest. The plaintext
-# never reaches disk in the served bundle. An empty password means
-# "no admin login configured" — auth.js then treats login as disabled.
+# never reaches disk in the served bundle, and unlike the pre-hm4c scheme the
+# digest no longer reaches the BROWSER either — it stays server-side in nginx
+# ($admin_hash) for the njs /admin/login handler to compare against. The
+# browser only learns whether admin is configured (config.js adminConfigured).
+# An empty password means "no admin login configured" — /admin/login 403s and
+# no valid session cookie can be minted, so admin routes stay locked.
 if [ -n "$NOOSCOPE_ADMIN_PASSWORD" ]; then
     ADMIN_HASH=$(printf '%s' "$NOOSCOPE_ADMIN_PASSWORD" | sha256sum | cut -d' ' -f1)
 else
     ADMIN_HASH=""
 fi
+export ADMIN_HASH
+
+# HMAC key for signing admin session cookies. Default: a fresh 32-byte random
+# key per container boot (od -> hex, no special chars for nginx/envsubst). A
+# new key on restart invalidates every outstanding cookie — fine for a
+# tab-scoped operator tool. Set NOOSCOPE_SESSION_SECRET to pin a stable key
+# across restarts (e.g. to keep sessions alive through a redeploy).
+SESSION_SECRET="${NOOSCOPE_SESSION_SECRET:-$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')}"
+export SESSION_SECRET
 
 # --- 2. Discover Scion roster (TSV: slug, name, badge) ---
 # Two paths:
@@ -253,7 +270,11 @@ escape_js_single() {
         printf "    pfPort: %s,\n" "${SPEAKER_PF_PORT:-8100}"
     fi
     printf '  },\n'
-    printf "  adminHash: '%s',\n" "$ADMIN_HASH"
+    # hm4c: ship only whether admin login is configured — never the digest.
+    # Password verification moved server-side (njs /admin/login), so the
+    # browser no longer needs (and must not hold) the SHA-256 hash.
+    if [ -n "$ADMIN_HASH" ]; then admin_configured=true; else admin_configured=false; fi
+    printf '  adminConfigured: %s,\n' "$admin_configured"
     printf '};\n'
 } > "$CONFIG_PATH"
 
@@ -277,7 +298,7 @@ escape_js_single() {
 # references or with the `${VAR}` envsubst placeholders.
 
 cat > "$MAP_TPL" <<'EOF'
-map $cookie_nooscope_admin $morpheus_auth___SLUG_VAR__ {
+map $admin_valid $morpheus_auth___SLUG_VAR__ {
     "1"     "Bearer $MORPHEUS_TOKEN___SLUG_UPPER__";
     default "";
 }
@@ -302,7 +323,7 @@ cat > "$BLOCK_TPL" <<'EOF'
     set $forge___SLUG_VAR__  forge-__SHORT__:8100;
 
     location /__SLUG__/ws/telemetry {
-        if ($cookie_nooscope_admin != "1") { return 401; }
+        if ($admin_valid != "1") { return 401; }
         rewrite ^/__SLUG__(/.*)$ $1 break;
         proxy_pass http://$engram___SLUG_VAR__;
         proxy_http_version 1.1;
@@ -328,7 +349,7 @@ cat > "$BLOCK_TPL" <<'EOF'
     }
 
     location /__SLUG__/ws/pf/telemetry {
-        if ($cookie_nooscope_admin != "1") { return 401; }
+        if ($admin_valid != "1") { return 401; }
         rewrite ^/__SLUG__/ws/pf(/telemetry.*)$ /ws$1 break;
         proxy_pass http://$forge___SLUG_VAR__;
         proxy_http_version 1.1;
@@ -406,7 +427,10 @@ fetch_telemetry_tokens() {
 
 : > "$MAPS_FRAGMENT"
 : > "$BLOCKS_FRAGMENT"
-ENVSUBST_VARS='${FORGE_WEB_ADMIN_TOKEN}'
+# Admin auth secrets (Nooscope-hm4c) join the allow-list so envsubst injects
+# them into the `set $session_secret`/`set $admin_hash` directives. Both are
+# hex (or empty), so no nginx-string escaping concerns.
+ENVSUBST_VARS='${FORGE_WEB_ADMIN_TOKEN} ${SESSION_SECRET} ${ADMIN_HASH}'
 
 while IFS='	' read -r slug name badge scion_id short _soul; do
     # nginx variable names allow only [A-Za-z0-9_]; slugs with hyphens
