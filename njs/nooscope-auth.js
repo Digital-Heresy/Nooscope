@@ -25,7 +25,11 @@
 import crypto from 'crypto';
 
 var COOKIE = 'nooscope_admin';
-var TTL_SECONDS = 12 * 3600; // hard cap; the cookie is otherwise session-scoped
+var TTL_SECONDS = 2 * 3600; // hard cap; the cookie is otherwise session-scoped.
+// Kept short to bound replay of a stolen token — there is no server-side
+// revocation short of rotating $session_secret (a container restart, or a
+// changed NOOSCOPE_SESSION_SECRET). Pinning that env var to keep sessions
+// alive across redeploys therefore also disables reboot-based revocation.
 
 function nowSeconds() {
     return Math.floor(Date.now() / 1000);
@@ -47,10 +51,28 @@ function safeEqual(a, b) {
     return diff === 0;
 }
 
+// CSRF defense for the state-changing /admin/login and /admin/logout POSTs.
+// The session cookie is SameSite=Strict (blocks cross-site cookie attachment),
+// but these endpoints change state regardless of the cookie, so we also reject
+// any request whose Origin is present and not same-origin. A cross-origin POST
+// (even no-cors / text-plain, which would otherwise slip JSON past the body
+// parser) always carries an Origin header, so this closes forced-login and the
+// logout-DoS. Same-origin requests (Origin absent, or Origin host == Host) pass.
+function sameOrigin(r) {
+    var origin = r.headersIn['Origin'];
+    if (!origin) return true;
+    var host = r.headersIn['Host'] || '';
+    return origin.replace(/^https?:\/\//, '') === host;
+}
+
 function cookieAttrs(r) {
     // TLS is terminated upstream (Caddy, Nooscope-03z5), so $scheme at nginx is
     // http even when the client is https. Trust X-Forwarded-Proto to decide the
     // Secure flag; on plain-HTTP LAN/dev we omit it so the cookie still sets.
+    // We trust the header because nginx's port is published on 127.0.0.1 only
+    // (see compose) — it is not directly reachable to spoof XFP; every external
+    // request arrives through the Caddy terminator that sets it. If that
+    // binding ever changes, restrict XFP trust (set_real_ip_from) accordingly.
     var secure = (r.headersIn['X-Forwarded-Proto'] === 'https') ? '; Secure' : '';
     return '; Path=/; HttpOnly; SameSite=Strict' + secure;
 }
@@ -82,6 +104,7 @@ function reply(r, status, obj) {
 // never sees $admin_hash or $session_secret.
 function login(r) {
     if (r.method !== 'POST') { reply(r, 405, { ok: false, reason: 'method' }); return; }
+    if (!sameOrigin(r)) { reply(r, 403, { ok: false, reason: 'cross-origin' }); return; }
     var hash = r.variables.admin_hash;
     if (!hash) { reply(r, 403, { ok: false, reason: 'no-admin-configured' }); return; }
     var pw = '';
@@ -98,6 +121,7 @@ function login(r) {
 // POST /admin/logout. Expires the cookie. sessionStorage (client source of
 // truth for isAdmin()) is cleared separately by auth.js.
 function logout(r) {
+    if (!sameOrigin(r)) { reply(r, 403, { ok: false, reason: 'cross-origin' }); return; }
     r.headersOut['Set-Cookie'] = COOKIE + '=' + cookieAttrs(r) + '; Max-Age=0';
     reply(r, 200, { ok: true });
 }

@@ -24,6 +24,12 @@
 # Rate limiting for public WebSocket connections
 limit_req_zone $binary_remote_addr zone=ws_public:10m rate=2r/s;
 
+# Throttle admin password attempts (Nooscope-hm4c hardening). The password is
+# a single shared secret with no lockout, so online brute force is the most
+# likely attack path if the gateway is ever broadly reachable. 5/min per IP
+# with a small burst is generous for a human operator, hostile to a guesser.
+limit_req_zone $binary_remote_addr zone=admin_login:10m rate=5r/m;
+
 # Admin session auth (Nooscope-hm4c). njs verifies an HMAC-signed session
 # cookie server-side and exposes the result as $admin_valid ("1" when the
 # cookie carries a valid, unexpired, correctly-signed token; "" otherwise).
@@ -115,7 +121,13 @@ server {
     # never proxy to forge-web. The browser sends the password over the same
     # same-origin channel it already uses; the digest comparison and signing
     # happen entirely server-side.
-    location = /admin/login  { js_content nooscope_auth.login;  }
+    location = /admin/login  {
+        # Brute-force throttle + tiny body cap (a password JSON is bytes, not
+        # KB) so the njs handler never buffers/JSON-parses a large body.
+        limit_req zone=admin_login burst=3 nodelay;
+        client_max_body_size 4k;
+        js_content nooscope_auth.login;
+    }
     location = /admin/logout { js_content nooscope_auth.logout; }
 
     # ---- PF admin web (cross-scion) ----
