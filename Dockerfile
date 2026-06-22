@@ -9,6 +9,11 @@ COPY css/ /usr/share/nginx/html/css/
 COPY js/ /usr/share/nginx/html/js/
 COPY models/ /usr/share/nginx/html/models/
 
+# Version-of-record (VERSION file). The entrypoint echoes it at startup so the
+# running image is identifiable in `docker logs`. Single source of truth — a
+# release bump touches only VERSION and the tag (see docs/versioning.md).
+COPY VERSION /etc/nooscope-version
+
 # Production nginx config as a template — docker-entrypoint envsubsts per-
 # Scion tokens into it at container start (Nooscope-r5kh).
 COPY nginx.conf.template /etc/nginx/conf.d/default.conf.template

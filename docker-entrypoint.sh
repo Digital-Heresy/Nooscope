@@ -36,6 +36,13 @@
 
 set -e
 
+# --- 0. Version marker ---
+# VERSION is the version-of-record, baked in by the Dockerfile. Echo it first
+# so the running image is identifiable in `docker logs` ("new image running"
+# marker). `|| echo unknown` keeps set -e from crashing if the file is absent.
+NOOSCOPE_VERSION=$(cat /etc/nooscope-version 2>/dev/null || echo unknown)
+echo "Nooscope ${NOOSCOPE_VERSION} starting"
+
 CONFIG_PATH="/usr/share/nginx/html/js/config.js"
 HEALTHZ_PATH="/usr/share/nginx/html/healthz.txt"
 NGINX_TEMPLATE="/etc/nginx/conf.d/default.conf.template"
