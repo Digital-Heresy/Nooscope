@@ -1,11 +1,20 @@
 ---
 # Nooscope-rl8v
 title: 'config.js is boot-only — roster / soul_managed / badge drift lingers until restart'
-status: todo
+status: done
 type: task
 created_at: 2026-06-22T00:00:00Z
 updated_at: 2026-06-22T00:00:00Z
 ---
+
+**Implemented (approach 1, container-side refresh).** `docker-entrypoint.sh` now
+extracts config.js generation into `write_config_js()` and, in prod mode,
+backgrounds a `refresh_config_js` loop (default 60s, `NOOSCOPE_CONFIG_REFRESH_SECONDS`,
+0 disables). Each tick best-effort re-fetches `/scions`, and — if the roster
+slug set still matches boot (membership guard) — atomically rewrites config.js
+with fresh field values (soulRepo/badge/name). Membership changes are logged and
+left for a restart (per-Scion nginx blocks aren't touched). Stacked on hm4c.
+
 
 `docker-entrypoint.sh` fetches forge-web `/scions` **once at container start** and bakes the
 result (host, pfPrefix, name, badge, scionId, soulRepo) into a static `config.js`. The browser
