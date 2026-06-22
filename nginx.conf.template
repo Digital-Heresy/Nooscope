@@ -118,7 +118,7 @@ server {
     # njs handlers: /admin/login verifies the POSTed password against
     # $admin_hash and issues the HMAC-signed cookie; /admin/logout expires it.
     # Exact-match (`=`) so they win over the /admin/scions/ prefix below and
-    # never proxy to forge-web. The browser sends the password over the same
+    # never proxy to forge-web. The browser sends the password over the
     # same-origin channel it already uses; the digest comparison and signing
     # happen entirely server-side.
     location = /admin/login  {
