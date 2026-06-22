@@ -9,6 +9,9 @@
 #        b. envsubst'ing per-Scion bearer tokens from env vars (the
 #           allow-list expands based on the discovered slugs).
 #   3. Write /healthz.txt so `GET /healthz` reports the loaded roster.
+#   4. (prod) Background-refresh config.js on an interval so operator-side
+#      field changes (soul_managed, badge, name) don't wait for a restart
+#      (Nooscope-rl8v). Roster membership changes still need a restart.
 #
 # Upstream secrets (RAVEN_TOKEN_*, MORPHEUS_TOKEN_*, FORGE_WEB_ADMIN_TOKEN)
 # never reach js/config.js — only nginx's running config holds them, and
@@ -23,6 +26,8 @@
 #   NOOSCOPE_SESSION_SECRET          optional; HMAC key for signing admin
 #                                    session cookies. Unset = fresh random key
 #                                    per boot (restart invalidates sessions).
+#   NOOSCOPE_CONFIG_REFRESH_SECONDS  prod only; config.js background-refresh
+#                                    interval (default 60). 0 disables it.
 #   NOOSCOPE_HOST                    set for production. When set, the
 #                                    entrypoint fetches forge-web's
 #                                    /scions registry and renders prod-
@@ -224,11 +229,10 @@ if [ -n "$NOOSCOPE_HOST" ]; then
     # Instead: `if .soul_managed == null then "" else tostring end` returns
     # "" only when the field is truly absent/null (older forge-web) and
     # converts the boolean to "true"/"false" otherwise.
-    printf '%s' "$SCIONS_JSON" \
-        | jq -r '.scions[] | select(.engram_bound == true)
-                | [.scion_slug, .name, .badge, .scion_id, (.runtime_short // ""),
-                   (if .soul_managed == null then "" else (.soul_managed | tostring) end)] | @tsv' \
-        > "$SCION_TSV"
+    # Projection shared with the rl8v background refresher (refresh_config_js)
+    # so both produce byte-identical TSV rows from the same /scions shape.
+    SCIONS_TSV_JQ='.scions[] | select(.engram_bound == true) | [.scion_slug, .name, .badge, .scion_id, (.runtime_short // ""), (if .soul_managed == null then "" else (.soul_managed | tostring) end)] | @tsv'
+    printf '%s' "$SCIONS_JSON" | jq -r "$SCIONS_TSV_JQ" > "$SCION_TSV"
 else
     cat > "$SCION_TSV" <<'EOF'
 speaker	Speaker	live-online	dh-speaker	speaker	false
@@ -240,6 +244,12 @@ scion_count=$(wc -l < "$SCION_TSV")
 scion_slugs=$(cut -f1 "$SCION_TSV" | tr '\n' ' ')
 echo "Nooscope: loaded ${scion_count} Scion(s): ${scion_slugs}"
 
+# Sorted slug set captured at boot. The rl8v refresher only rewrites config.js
+# when the live /scions slug set still matches this — a membership change needs
+# the per-Scion nginx blocks regenerated + a reload (restart), which the
+# refresher deliberately does not do.
+BOOT_SCION_SLUGS=$(cut -f1 "$SCION_TSV" | sort | tr '\n' ' ')
+
 # --- 3. config.js ---
 # Escape single quotes in `name` so they don't break the JS string. The
 # scion_slug and badge fields are constrained by PF's validators (slug:
@@ -249,6 +259,12 @@ escape_js_single() {
     printf '%s' "$1" | sed "s/'/\\\\'/g"
 }
 
+# write_config_js OUT TSV — (re)generate config.js from a roster TSV. Extracted
+# (Nooscope-rl8v) so the boot path and the background refresher share one
+# generator; nothing here depends on global $SCION_TSV anymore.
+write_config_js() {
+    _wcj_out="$1"
+    _wcj_tsv="$2"
 {
     printf 'const NOOSCOPE_CONFIG = {\n'
     printf '  scions: {\n'
@@ -271,7 +287,7 @@ escape_js_single() {
             # roster. Quoting makes any valid slug safe.
             printf "    \"%s\": { host: '%s', pfPrefix: '/%s', name: '%s', badge: '%s', scionId: '%s', soulRepo: %s },\n" \
                 "$slug" "$NOOSCOPE_HOST" "$slug" "$name_js" "$badge" "$scion_id" "$soul"
-        done < "$SCION_TSV"
+        done < "$_wcj_tsv"
     else
         # Dev shape: { thriden, pf, name, badge, scionId, soulRepo }. Only
         # speaker + helix are wired in dev — same scope as the pre-de9m
@@ -295,7 +311,44 @@ escape_js_single() {
     if [ -n "$ADMIN_HASH" ]; then admin_configured=true; else admin_configured=false; fi
     printf '  adminConfigured: %s,\n' "$admin_configured"
     printf '};\n'
-} > "$CONFIG_PATH"
+} > "$_wcj_out"
+}
+
+# Initial config.js from the boot roster.
+write_config_js "$CONFIG_PATH" "$SCION_TSV"
+
+# refresh_config_js — best-effort: re-fetch /scions and, IF the roster slug set
+# is unchanged, atomically rewrite config.js with fresh field values
+# (soulRepo/badge/name). Nooscope-rl8v: closes the boot-only staleness window
+# (e.g. an operator flipping soul_managed) without a container restart. Never
+# fails the caller — a transient forge-web blip just keeps the last good
+# config.js until the next tick. Prod-mode only (dev has no /scions).
+refresh_config_js() {
+    _r_raw="/tmp/scions.refresh.raw"
+    _r_body="/tmp/scions.refresh.body"
+    _r_tsv="/tmp/scions.refresh.tsv"
+    rm -f "$_r_raw" "${_r_raw}.clean" "$_r_body" "$_r_tsv"
+    { printf 'GET /scions HTTP/1.0\r\nHost: %s\r\nAccept: application/json\r\nConnection: close\r\n\r\n' \
+        "$FORGE_WEB_HOST"; sleep 2; } \
+        | nc -w 10 "$FORGE_WEB_NAME" "$FORGE_WEB_PORT" > "$_r_raw" 2>/dev/null || return 0
+    [ -s "$_r_raw" ] || return 0
+    tr -d '\r' < "$_r_raw" > "${_r_raw}.clean"
+    [ "$(awk 'NR==1{print $2; exit}' "${_r_raw}.clean")" = "200" ] || return 0
+    sed '1,/^$/d' "${_r_raw}.clean" > "$_r_body"
+    jq -e . "$_r_body" >/dev/null 2>&1 || return 0          # well-formed JSON only
+    jq -r "$SCIONS_TSV_JQ" "$_r_body" > "$_r_tsv" 2>/dev/null || return 0
+    # Membership guard: field-only refresh. A changed slug set needs the nginx
+    # per-Scion blocks regenerated + reload — leave that to a restart, just log.
+    _r_slugs=$(cut -f1 "$_r_tsv" | sort | tr '\n' ' ')
+    if [ "$_r_slugs" != "$BOOT_SCION_SLUGS" ]; then
+        echo "Nooscope: /scions roster membership changed; restart to update routes (config.js fields not refreshed)"
+        return 0
+    fi
+    # Atomic swap so a half-written config.js is never served.
+    write_config_js "${CONFIG_PATH}.tmp" "$_r_tsv" || return 0
+    mv -f "${CONFIG_PATH}.tmp" "$CONFIG_PATH"
+    return 0
+}
 
 # --- 4. /healthz body ---
 {
@@ -536,5 +589,24 @@ envsubst "$ENVSUBST_VARS" < "$NGINX_INTERMEDIATE" > "$NGINX_CONF"
 mode="${NOOSCOPE_HOST:+production}"
 admin_state="${ADMIN_HASH:+enabled}"
 echo "Nooscope ready (mode: ${mode:-dev}, admin: ${admin_state:-disabled})"
+
+# --- 7. Background config.js refresher (Nooscope-rl8v) ---
+# Prod only: periodically re-fetch /scions and refresh config.js field values so
+# operator-side changes (e.g. soul_managed) don't wait for a container restart.
+# Field-only — roster membership changes still need a restart (see
+# refresh_config_js). Tunable via NOOSCOPE_CONFIG_REFRESH_SECONDS; 0 disables.
+# The subshell runs with `set +e` so a failing tick never kills the loop, and it
+# survives the exec below (it becomes a child of nginx as PID 1, reaping its own
+# pipeline children — no zombies). dev mode has no /scions, so no refresher.
+if [ -n "$NOOSCOPE_HOST" ]; then
+    REFRESH_INTERVAL="${NOOSCOPE_CONFIG_REFRESH_SECONDS:-60}"
+    case "$REFRESH_INTERVAL" in ''|*[!0-9]*) REFRESH_INTERVAL=60 ;; esac
+    if [ "$REFRESH_INTERVAL" -gt 0 ]; then
+        ( set +e; while sleep "$REFRESH_INTERVAL"; do refresh_config_js; done ) &
+        echo "Nooscope: config.js refresher active (every ${REFRESH_INTERVAL}s)"
+    else
+        echo "Nooscope: config.js refresher disabled (NOOSCOPE_CONFIG_REFRESH_SECONDS=0)"
+    fi
+fi
 
 exec "$@"

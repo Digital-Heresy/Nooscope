@@ -53,6 +53,19 @@ The practical consequence for image choice: any base image that needs `CAP_CHOWN
 
 The rule: prefer rootless-by-design images over adding caps back. If a cap genuinely must be re-added, use `cap_add:` with a minimal list — do not remove `cap_drop: ALL`.
 
+## config.js generation & background refresh
+
+`docker-entrypoint.sh` generates `js/config.js` (the Scion roster + `adminConfigured`) from forge-web's `/scions` at container start. Because that was a one-shot at boot, any operator-side change after start — a flipped `soul_managed`, a badge/name edit — stayed invisible until the container restarted (the bug behind the Cairn SOUL-notice triage, **Nooscope-rl8v**).
+
+As of rl8v, the generator is the `write_config_js` function, and in **prod mode** (`NOOSCOPE_HOST` set) the entrypoint backgrounds a `refresh_config_js` loop before `exec`ing nginx:
+
+- Interval: `NOOSCOPE_CONFIG_REFRESH_SECONDS` (default `60`; `0` disables).
+- Each tick best-effort re-fetches `/scions`; on failure it keeps the last good `config.js` (never crashes the loop — the subshell runs `set +e`).
+- **Field-only**: it rewrites `config.js` (atomic temp+`mv`) only when the live roster's slug set still matches boot. A **membership** change (Scion added/removed) is logged and left for a restart, because new routes need the per-Scion nginx blocks regenerated + a reload, which the loop does not do.
+- The loop survives the `exec` (it becomes a child of nginx as PID 1, reaping its own pipeline children — no zombies). dev mode has no `/scions`, so no refresher runs.
+
+A browser only sees refreshed values on its next `config.js` load (the file is served `no-store`, so a page reload suffices — no container restart).
+
 ## Cross-references
 
 - nginx proxy routing and DNS resolution patterns: see `networking.md`.
