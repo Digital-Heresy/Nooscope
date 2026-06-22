@@ -197,9 +197,17 @@
       closeModal();
       applyVisibility();
     } else {
-      showError(result.reason === 'no-admin-configured'
-        ? 'Admin login not configured on this Nooscope instance.'
-        : 'Incorrect password.');
+      // hm4c moved verification server-side, so login can now fail for
+      // reasons beyond a bad password — distinguish them so the operator
+      // isn't told "wrong password" when the gateway was unreachable.
+      const msg =
+        result.reason === 'no-admin-configured'
+          ? 'Admin login not configured on this Nooscope instance.'
+          : (result.reason === 'network' || result.reason === 'error')
+            ? 'Login failed — could not reach the server. Try again.'
+            : 'Incorrect password.';
+      if (result.reason === 'error') console.error('[auth] unexpected login failure');
+      showError(msg);
     }
   }
 

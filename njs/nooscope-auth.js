@@ -105,6 +105,8 @@ function reply(r, status, obj) {
 function login(r) {
     if (r.method !== 'POST') { reply(r, 405, { ok: false, reason: 'method' }); return; }
     if (!sameOrigin(r)) { reply(r, 403, { ok: false, reason: 'cross-origin' }); return; }
+    var secret = r.variables.session_secret;
+    if (!secret) { reply(r, 500, { ok: false, reason: 'misconfigured' }); return; } // fail closed
     var hash = r.variables.admin_hash;
     if (!hash) { reply(r, 403, { ok: false, reason: 'no-admin-configured' }); return; }
     var pw = '';
@@ -113,7 +115,7 @@ function login(r) {
     var digest = crypto.createHash('sha256').update(pw).digest('hex');
     if (!safeEqual(digest, hash)) { reply(r, 401, { ok: false, reason: 'mismatch' }); return; }
     var exp = nowSeconds() + TTL_SECONDS;
-    var token = exp + '.' + hmacHex(r.variables.session_secret, String(exp));
+    var token = exp + '.' + hmacHex(secret, String(exp));
     r.headersOut['Set-Cookie'] = COOKIE + '=' + token + cookieAttrs(r);
     reply(r, 200, { ok: true });
 }
@@ -121,6 +123,10 @@ function login(r) {
 // POST /admin/logout. Expires the cookie. sessionStorage (client source of
 // truth for isAdmin()) is cleared separately by auth.js.
 function logout(r) {
+    // Enforce POST too: a GET navigation carries no Origin header, so the
+    // sameOrigin check alone would let `<img src=/admin/logout>` force a
+    // logout. Method + origin together close the cross-site logout vector.
+    if (r.method !== 'POST') { reply(r, 405, { ok: false, reason: 'method' }); return; }
     if (!sameOrigin(r)) { reply(r, 403, { ok: false, reason: 'cross-origin' }); return; }
     r.headersOut['Set-Cookie'] = COOKIE + '=' + cookieAttrs(r) + '; Max-Age=0';
     reply(r, 200, { ok: true });

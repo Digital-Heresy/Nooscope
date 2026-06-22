@@ -78,7 +78,26 @@ export ADMIN_HASH
 # new key on restart invalidates every outstanding cookie — fine for a
 # tab-scoped operator tool. Set NOOSCOPE_SESSION_SECRET to pin a stable key
 # across restarts (e.g. to keep sessions alive through a redeploy).
-SESSION_SECRET="${NOOSCOPE_SESSION_SECRET:-$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')}"
+#
+# The value lands verbatim in the `set $session_secret "...";` nginx directive,
+# so a pinned override containing a quote/semicolon/backslash/newline could
+# break config parsing or inject directives. Accept only [A-Za-z0-9] (the
+# hex/base default charset); reject anything else and fall back to a generated
+# key so a fat-fingered override can't wedge the gateway.
+gen_session_secret() { head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n'; }
+if [ -n "$NOOSCOPE_SESSION_SECRET" ]; then
+    case "$NOOSCOPE_SESSION_SECRET" in
+        *[!A-Za-z0-9]*)
+            echo "Nooscope: WARNING NOOSCOPE_SESSION_SECRET has non-alphanumeric characters; ignoring it and generating a random key" >&2
+            SESSION_SECRET=$(gen_session_secret)
+            ;;
+        *)
+            SESSION_SECRET="$NOOSCOPE_SESSION_SECRET"
+            ;;
+    esac
+else
+    SESSION_SECRET=$(gen_session_secret)
+fi
 export SESSION_SECRET
 
 # --- 2. Discover Scion roster (TSV: slug, name, badge) ---
