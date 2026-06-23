@@ -17,9 +17,12 @@
  *   $admin_hash      SHA-256 of NOOSCOPE_ADMIN_PASSWORD (entrypoint)
  *
  * Token shape: "<exp>.<hmac>" where exp = unix-seconds expiry and
- * hmac = HMAC-SHA256(session_secret, "<exp>") hex. Stateless: no server-side
- * session store, so a container restart (new random secret) invalidates every
- * outstanding cookie — acceptable for an operator tool with tab-scoped sessions.
+ * hmac = HMAC-SHA256(session_secret, "<exp>|<sha256(User-Agent)>") hex. The UA
+ * fingerprint (Nooscope-stb8) is folded into the signature — never stored in the
+ * cookie — so a cookie replayed from a different client fails verification.
+ * Stateless: no server-side session store, so a container restart (new random
+ * secret) invalidates every outstanding cookie — acceptable for an operator
+ * tool with tab-scoped sessions.
  */
 
 import crypto from 'crypto';
@@ -37,6 +40,22 @@ function nowSeconds() {
 
 function hmacHex(secret, msg) {
     return crypto.createHmac('sha256', secret).update(msg).digest('hex');
+}
+
+// Coarse client fingerprint folded into the token signature (Nooscope-stb8).
+// Binds a session cookie to the issuing client's User-Agent: the UA is hashed
+// into the HMAC message (never stored in the cookie), so a cookie replayed from
+// a different client (curl, another browser) fails verification. Defense in
+// depth against blind cookie replay; a browser update changes the UA and ends
+// the session (re-login), which is rare and acceptable within the 2h TTL.
+function clientBinding(r) {
+    return crypto.createHash('sha256').update(r.headersIn['User-Agent'] || '').digest('hex');
+}
+
+// Token signature: exp bound to the client fingerprint. Used by both login
+// (mint) and verifyAdmin (check) so they stay in lockstep.
+function tokenSig(secret, exp, r) {
+    return hmacHex(secret, exp + '|' + clientBinding(r));
 }
 
 // Length-checked, constant-time-ish hex compare. Avoids leaking match length
@@ -91,7 +110,7 @@ function verifyAdmin(r) {
     var sig = token.substring(dot + 1);
     if (!/^[0-9]+$/.test(exp)) return '';
     if (Number(exp) < nowSeconds()) return '';            // expired
-    return safeEqual(sig, hmacHex(secret, exp)) ? '1' : '';
+    return safeEqual(sig, tokenSig(secret, exp, r)) ? '1' : '';
 }
 
 function reply(r, status, obj) {
@@ -115,7 +134,7 @@ function login(r) {
     var digest = crypto.createHash('sha256').update(pw).digest('hex');
     if (!safeEqual(digest, hash)) { reply(r, 401, { ok: false, reason: 'mismatch' }); return; }
     var exp = nowSeconds() + TTL_SECONDS;
-    var token = exp + '.' + hmacHex(secret, String(exp));
+    var token = exp + '.' + tokenSig(secret, String(exp), r);
     r.headersOut['Set-Cookie'] = COOKIE + '=' + token + cookieAttrs(r);
     reply(r, 200, { ok: true });
 }
