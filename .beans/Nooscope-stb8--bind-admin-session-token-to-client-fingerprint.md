@@ -4,7 +4,7 @@ title: 'Bind admin session token to a client fingerprint (replay hardening)'
 status: done
 type: task
 created_at: 2026-06-22T00:00:00Z
-updated_at: 2026-06-22T00:00:00Z
+updated_at: 2026-06-23T01:30:00Z
 ---
 
 **Implemented.** `njs/nooscope-auth.js` now folds `sha256(User-Agent)` into the token
