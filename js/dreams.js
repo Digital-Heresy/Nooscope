@@ -167,6 +167,9 @@ function startSoulPoll() {
   const tick = async () => {
     if (!DreamState.isConnected) return;
     const cfg = await fetchFreshConfig();
+    // Re-check after the await: a disconnect during the in-flight fetch would
+    // otherwise let the resolved config re-show the notice on a cleared UI.
+    if (!DreamState.isConnected) return;
     const fresh = cfg && cfg.scions && cfg.scions[DreamState.scionName];
     if (fresh) showSoulRepoNotice(fresh);
     if (DreamState.isConnected) {
