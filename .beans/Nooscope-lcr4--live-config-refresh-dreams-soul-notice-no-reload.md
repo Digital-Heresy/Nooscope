@@ -1,11 +1,19 @@
 ---
 # Nooscope-lcr4
 title: 'Live config refresh — dreams SOUL notice updates without a page reload'
-status: todo
+status: done
 type: task
 created_at: 2026-06-22T00:00:00Z
-updated_at: 2026-06-22T00:00:00Z
+updated_at: 2026-06-23T01:28:48Z
 ---
+
+**Implemented.** `js/dreams.js` adds `fetchFreshConfig()` (re-fetches `/js/config.js`
+no-store and evaluates it via `new Function(... return NOOSCOPE_CONFIG)` for a robust
+real-JS parse) and a `startSoulPoll`/`stopSoulPoll` timer (60s, started on connect to a
+roster Scion, stopped on disconnect) that re-runs `showSoulRepoNotice` with the connected
+Scion's fresh `soulRepo`. Verified the parse mechanism against the live served config.js
+(extracts per-Scion soulRepo correctly); dreams.js passes `node --check`.
+
 
 Follow-up to Nooscope-rl8v. rl8v made the container re-fetch `/scions` and rewrite
 `config.js` on an interval, but an already-open page still shows the *baked-at-load*

@@ -34,6 +34,7 @@ const DreamState = {
   dreamCache: new Map(), // dreamId → { dream, fullyRendered }
   renderPollTimer: null,
   renderPollStart: 0,
+  soulPollTimer: null,  // Nooscope-lcr4: live SOUL-notice refresh
   isConnected: false,
   credits: null,        // { credits, cost_per_credit_usd }
   panelUrls: new Set(), // blob URLs for rendered panels — revoked on re-render
@@ -139,6 +140,49 @@ function showSoulRepoNotice(scionConfig) {
   }
 }
 
+// Live SOUL-notice refresh (Nooscope-lcr4). Nooscope-rl8v makes the container
+// rewrite config.js on an interval; this re-reads it client-side so the notice
+// tracks a flipped soul_managed without a page reload. config.js is a
+// `const NOOSCOPE_CONFIG` script, so we re-fetch the text and evaluate it in an
+// isolated scope to get the fresh object — a real-JS parse (no fragile regex);
+// the app ships no CSP and the source is same-origin trusted, so `new Function`
+// is acceptable here. Best-effort: a failed fetch keeps the current notice.
+const SOUL_POLL_MS = 60000; // matches rl8v's server-side refresh cadence
+
+async function fetchFreshConfig() {
+  try {
+    const res = await fetch('/js/config.js', { cache: 'no-store' });
+    if (!res.ok) return null;
+    const text = await res.text();
+    return new Function(text + '\nreturn NOOSCOPE_CONFIG;')();
+  } catch (e) {
+    return null;
+  }
+}
+
+function startSoulPoll() {
+  stopSoulPoll();
+  // Only meaningful for a roster Scion — custom (port) connects carry no soulRepo.
+  if (!DreamState.scionName || !SCION_PRESETS[DreamState.scionName]) return;
+  const tick = async () => {
+    if (!DreamState.isConnected) return;
+    const cfg = await fetchFreshConfig();
+    const fresh = cfg && cfg.scions && cfg.scions[DreamState.scionName];
+    if (fresh) showSoulRepoNotice(fresh);
+    if (DreamState.isConnected) {
+      DreamState.soulPollTimer = setTimeout(tick, SOUL_POLL_MS);
+    }
+  };
+  DreamState.soulPollTimer = setTimeout(tick, SOUL_POLL_MS);
+}
+
+function stopSoulPoll() {
+  if (DreamState.soulPollTimer) {
+    clearTimeout(DreamState.soulPollTimer);
+    DreamState.soulPollTimer = null;
+  }
+}
+
 function connectToScion(scionConfig, scionName) {
   DreamState.scionName = scionName || 'custom';
   DreamState.pfBaseUrl = buildPfBaseUrl(scionConfig);
@@ -146,6 +190,7 @@ function connectToScion(scionConfig, scionName) {
   setPfStatus('connected');
   setConnectedState(true);
   showSoulRepoNotice(scionConfig);
+  startSoulPoll();
   // Dream timeline reads work in public mode (Morpheus allows
   // unauthenticated GET on /dreams). Admin-only data — credits, channels —
   // only fetched when the user holds an admin session.
@@ -167,6 +212,7 @@ function disconnectAll() {
   DreamState.dreamCache.clear();
   revokeAllPanelUrls();
   stopRenderPoll();
+  stopSoulPoll();
   setPfStatus('disconnected');
   setConnectedState(false);
   updateDreamCount(null);

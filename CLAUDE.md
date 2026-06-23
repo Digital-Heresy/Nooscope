@@ -46,5 +46,5 @@ Defined in `NOOSCOPE_CONFIG.scions` (config.js): Speaker (3030/8100), Helix (303
 
 - **`index.html`** — Main 3D brain visualizer (WebSocket telemetry)
 - **`dreams.html`** — Morpheus dream storyboard viewer (REST API to PersonaForge)
-- **`social.html`** — Social graph view (in progress, see `Nooscope-nkvw`)
+- **`social.html`** — Social graph view: renders PersonaForge's per-Scion acquaintance graph (`Nooscope-nkvw`)
 - **`logs.html`** — Admin-only container log inspector (`Nooscope-lginsp`). Auto-polls `/admin/scions/{scionId}/logs` (forge-web tails the `forge-<short>` PersonaForge container's docker logs) and renders the last N lines with client-side Full/Warnings/Errors filtering. Reuses the existing `/admin/scions/` nginx gate — no per-Scion proxy block.
