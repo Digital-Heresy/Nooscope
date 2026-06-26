@@ -23,6 +23,8 @@ The substitution order matters — `__SLUG_UPPER__` and `__SLUG_VAR__` both cont
 
 **`/healthz` reports the loaded roster** as a static text file emitted by the entrypoint and served by nginx at `/healthz`. `curl http://nooscope.host/healthz` is the operator's "did the registry populate" check after a container restart.
 
+**`/health` reports the build version** as unauthenticated JSON (`{"status":"ok","version":"X.Y.Z"}`) — the version is the version-of-record from the `VERSION` file, baked to `/etc/nooscope-version` and written to `health.json` by the entrypoint at start. Forge polls it to compare current-vs-available as releases roll out. Distinct from `/healthz`: machine-readable JSON for tooling vs. a human-readable roster dump for operators.
+
 When adding a new per-Scion route, edit the heredoc templates inside `docker-entrypoint.sh`, not `nginx.conf.template` — the template only holds the skeleton.
 
 ## Two recurring nginx infra patterns

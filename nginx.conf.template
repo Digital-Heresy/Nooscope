@@ -107,6 +107,17 @@ server {
         alias /usr/share/nginx/html/healthz.txt;
     }
 
+    # /health is an unauthenticated, machine-readable JSON probe carrying the
+    # build version (version-of-record from the VERSION file). Forge polls it
+    # to compare current-vs-available as releases roll out. The body is written
+    # by the entrypoint at container start (see docker-entrypoint.sh). Distinct
+    # from /healthz, which is a human-readable text dump of the Scion roster.
+    location = /health {
+        default_type application/json;
+        add_header Cache-Control "no-store" always;
+        alias /usr/share/nginx/html/health.json;
+    }
+
     # Static assets with caching
     location ~* \.(js|css|png|ico|jpg|svg|woff2?|obj)$ {
         expires 1h;
