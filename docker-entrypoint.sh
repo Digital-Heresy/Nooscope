@@ -54,6 +54,7 @@ echo "Nooscope ${NOOSCOPE_VERSION} starting"
 
 CONFIG_PATH="/usr/share/nginx/html/js/config.js"
 HEALTHZ_PATH="/usr/share/nginx/html/healthz.txt"
+HEALTH_PATH="/usr/share/nginx/html/health.json"
 NGINX_TEMPLATE="/etc/nginx/conf.d/default.conf.template"
 NGINX_CONF="/etc/nginx/conf.d/default.conf"
 NGINX_INTERMEDIATE="/tmp/default.conf.markers-resolved"
@@ -371,6 +372,15 @@ refresh_config_js() {
         printf '  %s\t%s\t%s\t%s\n' "$slug" "$name" "$badge" "$scion_id"
     done < "$SCION_TSV"
 } > "$HEALTHZ_PATH"
+
+# --- 4b. /health body ---
+# Machine-readable, unauthenticated JSON carrying the build version (the
+# version-of-record from the VERSION file, loaded into $NOOSCOPE_VERSION at
+# section 0). Forge polls GET /health to compare current-vs-available as
+# releases roll out. Kept deliberately minimal and stable so external tooling
+# can rely on the shape. Distinct from /healthz, which is a human-readable
+# text dump of the Scion roster for operators.
+printf '{"status":"ok","version":"%s"}\n' "$NOOSCOPE_VERSION" > "$HEALTH_PATH"
 
 # --- 5. Per-Scion nginx fragments ---
 # Templates are written once to temp files; each iteration sed-renders
