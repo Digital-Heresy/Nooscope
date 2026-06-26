@@ -380,7 +380,13 @@ refresh_config_js() {
 # releases roll out. Kept deliberately minimal and stable so external tooling
 # can rely on the shape. Distinct from /healthz, which is a human-readable
 # text dump of the Scion roster for operators.
-printf '{"status":"ok","version":"%s"}\n' "$NOOSCOPE_VERSION" > "$HEALTH_PATH"
+#
+# Strip CR/LF and double-quotes before interpolating into the JSON string so
+# the output is valid JSON even if VERSION were checked out with CRLF endings
+# or an unexpected trailing newline survived command substitution.
+_health_version=$(printf '%s' "$NOOSCOPE_VERSION" | tr -d '\r\n"\\')
+printf '{"status":"ok","version":"%s"}\n' "$_health_version" > "$HEALTH_PATH"
+unset _health_version
 
 # --- 5. Per-Scion nginx fragments ---
 # Templates are written once to temp files; each iteration sed-renders
